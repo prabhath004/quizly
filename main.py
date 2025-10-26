@@ -14,12 +14,12 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Import modules (will be created)
-# from app.auth import auth_router
-# from app.ingest import ingest_router
-# from app.ai import ai_router
-# from app.sessions import sessions_router
-# from app.database import init_db
+# Import modules
+from app.auth import auth_router
+from app.ingest import ingest_router
+from app.ai import ai_router
+from app.sessions import sessions_router
+from app.database import init_db
 
 
 @asynccontextmanager
@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     print("🚀 Starting Quizly Backend...")
-    # await init_db()  # Initialize database connection
+    await init_db()  # Initialize database connection
     yield
     # Shutdown
     print("🛑 Shutting down Quizly Backend...")
@@ -73,11 +73,11 @@ async def root():
         "version": "1.0.0"
     }
 
-# Include routers (will be uncommented as modules are created)
-# app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
-# app.include_router(ingest_router, prefix="/api/ingest", tags=["File Ingestion"])
-# app.include_router(ai_router, prefix="/api/ai", tags=["AI Services"])
-# app.include_router(sessions_router, prefix="/api/sessions", tags=["Study Sessions"])
+# Include routers
+app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(ingest_router, prefix="/api/ingest", tags=["File Ingestion"])
+app.include_router(ai_router, prefix="/api/ai", tags=["AI Services"])
+app.include_router(sessions_router, prefix="/api/sessions", tags=["Study Sessions"])
 
 
 if __name__ == "__main__":
