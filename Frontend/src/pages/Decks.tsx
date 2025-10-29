@@ -118,13 +118,13 @@ const Decks = () => {
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : decks.length === 0 ? (
-          <Card className="text-center py-12 animate-fade-in">
+          <Card className="relative text-center py-12 animate-fade-in overflow-hidden rounded-2xl shadow-md bg-gradient-to-br from-white via-pink-50 to-purple-100 bg-[length:200%_200%] animate-gradient-loop">
             <CardContent className="space-y-4">
               <BookOpen className="h-16 w-16 mx-auto text-muted-foreground opacity-50" />
               <div>
                 <h3 className="text-xl font-semibold mb-2">No decks yet</h3>
                 <p className="text-muted-foreground mb-6">
-                  Create your first flashcard deck to get started
+                  Let's get started by creating your first flashcard deck
                 </p>
                 <Button variant="hero" onClick={() => navigate("/")}>
                   Generate Your First Deck

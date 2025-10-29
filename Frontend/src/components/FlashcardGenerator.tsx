@@ -69,11 +69,11 @@ const FlashcardGenerator = () => {
 
     try {
       const formDataToSend = new FormData();
-      formDataToSend.append("deckTitle", formData.deckTitle);
-      formDataToSend.append("numFlashcards", formData.numFlashcards.toString());
+      formDataToSend.append("deck_title", formData.deckTitle);
+      formDataToSend.append("num_flashcards", formData.numFlashcards.toString());
       formDataToSend.append("difficulty", formData.difficulty);
-      formDataToSend.append("questionType", formData.questionType);
-      formDataToSend.append("textContent", formData.textContent);
+      formDataToSend.append("question_type", formData.questionType);
+      formDataToSend.append("text_content", formData.textContent);
       if (file) {
         formDataToSend.append("file", file);
       }
@@ -217,7 +217,7 @@ const FlashcardGenerator = () => {
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="deckTitle">Deck Title *</Label>
+              <Label htmlFor="deckTitle">Deck Title <span style={{ color: 'red' }}>*</span></Label>
               <Input
                 id="deckTitle"
                 placeholder="e.g., Biology Chapter 5: Cell Structure"
@@ -233,7 +233,7 @@ const FlashcardGenerator = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="numFlashcards">Number of Cards *</Label>
+                <Label htmlFor="numFlashcards">Number of Cards <span style={{ color: 'red' }}>*</span></Label>
                 <Input
                   id="numFlashcards"
                   type="number"
@@ -250,7 +250,7 @@ const FlashcardGenerator = () => {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="difficulty">Difficulty Level *</Label>
+                <Label htmlFor="difficulty">Difficulty Level <span style={{ color: 'red' }}>*</span></Label>
                 <Select
                   value={formData.difficulty}
                   onValueChange={(value) => setFormData({ ...formData, difficulty: value })}
@@ -270,7 +270,7 @@ const FlashcardGenerator = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="questionType">Question Type *</Label>
+              <Label htmlFor="questionType">Question Type <span style={{ color: 'red' }}>*</span></Label>
               <Select
                 value={formData.questionType}
                 onValueChange={(value) => setFormData({ ...formData, questionType: value })}
@@ -283,14 +283,14 @@ const FlashcardGenerator = () => {
                   <SelectItem value="multiple-choice">Multiple Choice</SelectItem>
                   <SelectItem value="true-false">True/False</SelectItem>
                   <SelectItem value="fill-in-blank">Fill in the Blank</SelectItem>
-                  <SelectItem value="short-answer">Short Answer</SelectItem>
+                  <SelectItem value="short-answer">Free Answer</SelectItem>
                   <SelectItem value="mixed">Mixed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="textContent">Text Content *</Label>
+              <Label htmlFor="textContent">Text Content <span style={{ color: 'red' }}>*</span></Label>
               <Textarea
                 id="textContent"
                 placeholder="Paste your notes, text, or study material here..."
@@ -306,7 +306,7 @@ const FlashcardGenerator = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="file">Or Upload a File (Optional)</Label>
+              <Label htmlFor="file">Optional: <span className="bg-gradient-primary bg-clip-text text-transparent">Upload a File</span></Label>
               <div className="flex items-center gap-3">
                 <Input
                   id="file"
@@ -342,9 +342,9 @@ const FlashcardGenerator = () => {
               </p>
             </div>
 
-            <Alert>
+            <Alert className="flex justify-center items-center text-center">
               <AlertDescription className="text-sm">
-                💡 <strong>Tip:</strong> You must fill all fields before generating your deck.
+                💡 <strong>Notice:</strong> Please fill all fields before generating your deck.
               </AlertDescription>
             </Alert>
           </div>

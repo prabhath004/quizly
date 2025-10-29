@@ -119,16 +119,26 @@ const Auth = () => {
         
         <CardContent>
           <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 bg-muted">
+              <TabsTrigger 
+                value="login"
+                className="transition-all data-[state=active]:bg-background"
+              >
+                Login
+              </TabsTrigger>
+              <TabsTrigger 
+                value="signup"
+                className="transition-all data-[state=active]:bg-background"
+              >
+                Sign Up
+              </TabsTrigger>
             </TabsList>
 
             {/* Login Tab */}
-            <TabsContent value="login">
+            <TabsContent value="login" className="animate-in fade-in-50 slide-in-from-bottom-2 duration-300">
               <form onSubmit={handleLogin} className="space-y-4 mt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="login-email">Email</Label>
+                  <Label htmlFor="login-email">Email <span style={{ color: 'red' }}>*</span></Label>
                   <Input
                     id="login-email"
                     type="email"
@@ -140,7 +150,7 @@ const Auth = () => {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="login-password">Password</Label>
+                  <Label htmlFor="login-password">Password <span style={{ color: 'red' }}>*</span></Label>
                   <Input
                     id="login-password"
                     type="password"
@@ -171,10 +181,10 @@ const Auth = () => {
             </TabsContent>
 
             {/* Signup Tab */}
-            <TabsContent value="signup">
+            <TabsContent value="signup" className="animate-in fade-in-50 slide-in-from-bottom-2 duration-300">
               <form onSubmit={handleSignup} className="space-y-4 mt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="signup-name">Full Name</Label>
+                  <Label htmlFor="signup-name">Full Name <span style={{ color: 'red' }}>*</span></Label>
                   <Input
                     id="signup-name"
                     type="text"
@@ -186,7 +196,7 @@ const Auth = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
+                  <Label htmlFor="signup-email">Email <span style={{ color: 'red' }}>*</span></Label>
                   <Input
                     id="signup-email"
                     type="email"
@@ -198,7 +208,7 @@ const Auth = () => {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
+                  <Label htmlFor="signup-password">Password <span style={{ color: 'red' }}>*</span></Label>
                   <Input
                     id="signup-password"
                     type="password"
@@ -210,7 +220,7 @@ const Auth = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="signup-confirm-password">Confirm Password</Label>
+                  <Label htmlFor="signup-confirm-password">Confirm Password <span style={{ color: 'red' }}>*</span></Label>
                   <Input
                     id="signup-confirm-password"
                     type="password"
