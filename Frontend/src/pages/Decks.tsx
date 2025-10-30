@@ -40,7 +40,13 @@ const Decks = () => {
       if (!response.ok) throw new Error("Failed to fetch decks");
 
       const data = await response.json();
-      setDecks(data.decks || []);
+      const recievedDecks = data.decks || [];
+      setDecks(recievedDecks);
+
+      if (recievedDecks.length === 0) {
+        console.log("No decks found for the user.");
+      }
+
     } catch (err) {
       toast({
         title: "Error",
