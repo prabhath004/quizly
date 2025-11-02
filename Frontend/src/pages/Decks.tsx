@@ -3,9 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, Play, Trash2, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { BookOpen, Play, Trash2, Loader2, Plus, Edit2, FolderPlus, Folder, FolderOpen, X, Move, MoreVertical } from "lucide-react";
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
+// Temporarily disabled drag-and-drop due to React hook error
+// import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, closestCenter } from "@dnd-kit/core";
+// import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+// import { CSS } from "@dnd-kit/utilities";
 
 interface Deck {
   id: string;
@@ -14,17 +21,47 @@ interface Deck {
   difficulty: string;
   questionType: string;
   createdAt: string;
+  folder_id?: string | null;
+}
+
+interface Folder {
+  id: string;
+  name: string;
+  deck_count: number;
+  created_at: string;
 }
 
 const Decks = () => {
   const [decks, setDecks] = useState<Deck[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Drag-and-drop temporarily disabled
+  // const [isDragging, setIsDragging] = useState(false);
+  // const [activeId, setActiveId] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [creatingFolder, setCreatingFolder] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchDecks();
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const fetchData = async () => {
+    // Fetch decks and folders independently - if one fails, the other should still work
+    fetchDecks().catch(err => {
+      console.error("Error fetching decks:", err);
+      setIsLoading(false);
+    });
+    
+    fetchFolders().catch(err => {
+      console.error("Error fetching folders:", err);
+      // Folders are optional, so we just continue
+    });
+  };
 
   const fetchDecks = async () => {
     setIsLoading(true);
@@ -50,6 +87,7 @@ const Decks = () => {
         questionType: deck.description?.includes("MCQ") ? "mcq" :
                      deck.description?.includes("TRUE_FALSE") ? "true_false" : "free_response",
         createdAt: deck.created_at,
+        folder_id: deck.folder_id,
       }));
       
       setDecks(transformedDecks);
@@ -59,8 +97,107 @@ const Decks = () => {
         description: "Failed to load your decks. Please try again.",
         variant: "destructive",
       });
-    } finally{
+    } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchFolders = async () => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      if (!token) {
+        console.warn("No auth token available");
+        return;
+      }
+
+      const response = await fetch("http://localhost:8000/api/folders/my-folders", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setFolders(data || []);
+      } else {
+        // If folders endpoint doesn't exist or returns error, just use empty array
+        console.warn("Folders endpoint returned error:", response.status);
+        setFolders([]);
+      }
+    } catch (err) {
+      // Silently fail - folders feature is optional
+      console.warn("Failed to fetch folders (this is OK if folders table doesn't exist yet):", err);
+      setFolders([]);
+    }
+  };
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) {
+      toast({
+        title: "Invalid name",
+        description: "Please enter a folder name.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCreatingFolder(true);
+    try {
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch("http://localhost:8000/api/folders", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: newFolderName }),
+      });
+
+      if (!response.ok) throw new Error("Failed to create folder");
+
+      await fetchFolders();
+      setNewFolderName("");
+      setIsCreatingFolder(false);
+      
+      toast({
+        title: "Folder created",
+        description: `Folder "${newFolderName}" has been created.`,
+      });
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to create folder. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch(`http://localhost:8000/api/folders/${folderId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) throw new Error("Failed to delete folder");
+
+      toast({
+        title: "Folder deleted",
+        description: "The folder has been removed and its decks moved to root.",
+      });
+
+      await fetchData();
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to delete folder. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -93,7 +230,7 @@ const Decks = () => {
         description: "Your flashcard deck has been removed.",
       });
 
-      setDecks(decks.filter((d) => d.id !== deckId));
+      await fetchDecks();
     } catch (err) {
       toast({
         title: "Error",
@@ -101,6 +238,51 @@ const Decks = () => {
         variant: "destructive",
       });
     }
+  };
+
+  // Simplified move function without drag-and-drop
+  const moveDeckToFolder = async (deckId: string, folderId: string | null) => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch(`http://localhost:8000/api/decks/${deckId}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          folder_id: folderId,
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to move deck");
+
+      const targetFolder = folderId ? folders.find(f => f.id === folderId) : null;
+      toast({
+        title: "Deck moved",
+        description: targetFolder ? `Deck moved to "${targetFolder.name}"` : "Deck moved to root",
+      });
+
+      await fetchDecks();
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to move deck. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const toggleFolder = (folderId: string) => {
+    setExpandedFolders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(folderId)) {
+        newSet.delete(folderId);
+      } else {
+        newSet.add(folderId);
+      }
+      return newSet;
+    });
   };
 
   const getDifficultyColor = (difficulty: string) => {
@@ -116,85 +298,236 @@ const Decks = () => {
     }
   };
 
+  const rootDecks = decks.filter(deck => !deck.folder_id);
+
+  const DeckCard = ({ deck, index, folders }: { deck: Deck; index: number; folders: Folder[] }) => {
+    return (
+      <div>
+        <Card
+          className="hover:shadow-elegant transition-all duration-200 hover:scale-[1.02] animate-fade-in"
+          style={{ animationDelay: `${index * 0.1}s` }}
+        >
+          <CardHeader>
+            <CardTitle className="text-xl">{deck.title}</CardTitle>
+            <CardDescription>
+              Created {new Date(deck.createdAt).toLocaleDateString()}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="secondary">
+                {deck.numFlashcards} cards
+              </Badge>
+              <Badge className={getDifficultyColor(deck.difficulty)}>
+                {deck.difficulty}
+              </Badge>
+              <Badge variant="outline">
+                {deck.questionType === "mcq" ? "Multiple Choice" : "Free Response"}
+              </Badge>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={() => handleStudyDeck(deck)}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                Study
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => navigate(`/decks/${deck.id}/edit`)}
+              >
+                <Edit2 className="h-4 w-4" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => moveDeckToFolder(deck.id, null)}>
+                    <Folder className="mr-2 h-4 w-4" />
+                    Move to Root
+                  </DropdownMenuItem>
+                  {folders.length > 0 && (
+                    <>
+                      {folders.map((folder) => (
+                        <DropdownMenuItem 
+                          key={folder.id}
+                          onClick={() => moveDeckToFolder(deck.id, folder.id)}
+                        >
+                          <FolderOpen className="mr-2 h-4 w-4" />
+                          Move to {folder.name}
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  )}
+                  <DropdownMenuItem 
+                    onClick={() => handleDeleteDeck(deck.id)}
+                    className="text-destructive"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  const FolderItem = ({ folder }: { folder: Folder }) => {
+    const isExpanded = expandedFolders.has(folder.id);
+    const folderDecks = decks.filter(deck => deck.folder_id === folder.id);
+
+    return (
+      <div>
+        <Card className="mb-4">
+          <CardHeader className="cursor-pointer" onClick={() => toggleFolder(folder.id)}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {isExpanded ? (
+                  <FolderOpen className="h-5 w-5 text-blue-500" />
+                ) : (
+                  <Folder className="h-5 w-5 text-blue-500" />
+                )}
+                <div>
+                  <CardTitle className="text-lg">{folder.name}</CardTitle>
+                  <CardDescription>{folderDecks.length} decks</CardDescription>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteFolder(folder.id);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardHeader>
+          {isExpanded && folderDecks.length > 0 && (
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {folderDecks.map((deck, index) => (
+                  <DeckCard key={deck.id} deck={deck} index={index} folders={folders} />
+                ))}
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header isAuthenticated={true} onLogout={() => navigate("/auth")} />
       
       <main className="container mx-auto py-12 px-4 sm:px-6 lg:px-8">
         <div className="mb-8 animate-fade-in">
-          <h1 className="text-4xl font-bold mb-2 bg-gradient-primary bg-clip-text text-transparent">
-            My Flashcard Decks
-          </h1>
-          <p className="text-muted-foreground">
-            Review and study your AI-generated flashcard collections
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold mb-2 bg-gradient-primary bg-clip-text text-transparent">
+                My Flashcard Decks
+              </h1>
+              <p className="text-muted-foreground">
+                Review and study your AI-generated flashcard collections
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Dialog open={isCreatingFolder} onOpenChange={setIsCreatingFolder}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <FolderPlus className="h-4 w-4" />
+                    New Folder
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create New Folder</DialogTitle>
+                    <DialogDescription>
+                      Organize your decks into folders for better management.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <Input
+                      placeholder="Folder name"
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleCreateFolder();
+                        }
+                      }}
+                    />
+                    <Button onClick={handleCreateFolder} disabled={creatingFolder} className="w-full">
+                      {creatingFolder ? "Creating..." : "Create Folder"}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+              <Button onClick={() => navigate("/decks/new")}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Deck
+              </Button>
+            </div>
+          </div>
         </div>
 
         {isLoading ? (
           <div className="flex justify-center items-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
-        ) : decks.length === 0 ? (
-          <Card className="relative text-center py-12 animate-fade-in overflow-hidden rounded-2xl shadow-md bg-gradient-to-br from-white via-pink-50 to-purple-100 bg-[length:200%_200%] animate-gradient-loop">
-            <CardContent className="space-y-4">
-              <BookOpen className="h-16 w-16 mx-auto text-muted-foreground opacity-50" />
-              <div>
-                <h3 className="text-xl font-semibold mb-2">No decks yet</h3>
-                <p className="text-muted-foreground mb-6">
-                  Let's get started by creating your first flashcard deck
-                </p>
-                <Button variant="hero" onClick={() => navigate("/")}>
-                  Generate Your First Deck
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {decks.map((deck, index) => (
-              <Card
-                key={deck.id}
-                className="hover:shadow-elegant transition-all duration-200 hover:scale-[1.02] animate-fade-in"
-                style={{ animationDelay: `${index * 0.1}s` }}
-              >
-                <CardHeader>
-                  <CardTitle className="text-xl">{deck.title}</CardTitle>
-                  <CardDescription>
-                    Created {new Date(deck.createdAt).toLocaleDateString()}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="secondary">
-                      {deck.numFlashcards} cards
-                    </Badge>
-                    <Badge className={getDifficultyColor(deck.difficulty)}>
-                      {deck.difficulty}
-                    </Badge>
-                    <Badge variant="outline">
-                      {deck.questionType === "mcq" ? "Multiple Choice" : "Free Response"}
-                    </Badge>
-                  </div>
+          <div>
+            {folders.length > 0 && (
+              <div>
+                {folders.map((folder) => (
+                  <FolderItem key={folder.id} folder={folder} />
+                ))}
+              </div>
+            )}
 
-                  <div className="flex gap-2">
-                    <Button
-                      className="flex-1"
-                      onClick={() => handleStudyDeck(deck)}
-                    >
-                      <Play className="mr-2 h-4 w-4" />
-                      Study
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => handleDeleteDeck(deck.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+            {rootDecks.length > 0 && (
+              <div className="mb-4">
+                <h2 className="text-2xl font-semibold mb-4">Unorganized Decks</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {rootDecks.map((deck, index) => (
+                    <DeckCard key={deck.id} deck={deck} index={index} folders={folders} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {folders.length === 0 && rootDecks.length === 0 && (
+              <Card className="relative text-center py-12 animate-fade-in overflow-hidden rounded-2xl shadow-md bg-gradient-to-br from-white via-pink-50 to-purple-100 bg-[length:200%_200%] animate-gradient-loop">
+                <CardContent className="space-y-4">
+                  <BookOpen className="h-16 w-16 mx-auto text-muted-foreground opacity-50" />
+                  <div>
+                    <h3 className="text-xl font-semibold mb-2">No decks yet</h3>
+                    <p className="text-muted-foreground mb-6">
+                      Let's get started by creating your first flashcard deck
+                    </p>
+                    <div className="flex gap-3 justify-center">
+                      <Button variant="hero" onClick={() => navigate("/decks/new")}>
+                        Create Manual Deck
+                      </Button>
+                      <Button variant="outline" onClick={() => navigate("/")}>
+                        Generate with AI
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            )}
           </div>
         )}
       </main>
