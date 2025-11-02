@@ -38,14 +38,14 @@ const StudyFreeResponse = () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem("auth_token");
-      const response = await fetch(`/api/decks/${deckId}`, {
+      const response = await fetch(`http://localhost:8000/api/sessions/deck/${deckId}/flashcards`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!response.ok) throw new Error("Failed to fetch deck");
 
       const data = await response.json();
-      setDeck(data.deck);
+      setDeck({ title: "Free Response Quiz" });
       setFlashcards(data.flashcards || []);
     } catch (err) {
       toast({
@@ -53,7 +53,7 @@ const StudyFreeResponse = () => {
         description: "Failed to load flashcards. Please try again.",
         variant: "destructive",
       });
-      navigate("/decks");
+      navigate("/");
     } finally {
       setIsLoading(false);
     }
@@ -204,18 +204,56 @@ const StudyFreeResponse = () => {
               {!showAnswer ? (
                 <Button
                   className="w-full"
-                  onClick={() => setShowAnswer(true)}
+                  onClick={async () => {
+                    setShowAnswer(true);
+                    // Evaluate with backend
+                    try {
+                      const token = localStorage.getItem("auth_token");
+                      const response = await fetch("http://localhost:8000/api/ai/evaluate-answer", {
+                        method: "POST",
+                        headers: {
+                          "Authorization": `Bearer ${token}`,
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          user_answer: userAnswer,
+                          correct_answer: currentCard.answer,
+                          question_type: "free_response",
+                        }),
+                      });
+
+                      const result = await response.json();
+                      
+                      toast({
+                        title: result.is_correct ? "Great Answer! 🎉" : "Keep Practicing!",
+                        description: `Similarity: ${(result.similarity_score * 100).toFixed(0)}% - ${result.feedback}`,
+                        variant: result.is_correct ? "default" : "destructive",
+                      });
+                    } catch (error) {
+                      console.error("Error evaluating answer:", error);
+                    }
+                  }}
                   disabled={!userAnswer.trim()}
                 >
-                  Show Answer
+                  Evaluate Answer
                 </Button>
               ) : (
                 <div className="space-y-4 p-4 bg-accent/50 rounded-lg border-2 border-primary/20 animate-fade-in">
                   <div className="flex items-center gap-2 text-primary">
                     <CheckCircle2 className="h-5 w-5" />
-                    <span className="font-semibold">Correct Answer:</span>
+                    <span className="font-semibold">Model Answer:</span>
                   </div>
                   <p className="text-lg">{currentCard.answer}</p>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setShowAnswer(false);
+                      setUserAnswer("");
+                    }}
+                  >
+                    Try Again
+                  </Button>
                 </div>
               )}
             </CardContent>

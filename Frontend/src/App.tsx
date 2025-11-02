@@ -8,6 +8,7 @@ import Auth from "./pages/Auth";
 import Decks from "./pages/Decks";
 import StudyFreeResponse from "./pages/StudyFreeResponse";
 import StudyMCQ from "./pages/StudyMCQ";
+import StudyTrueFalse from "./pages/StudyTrueFalse";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -24,6 +25,7 @@ const App = () => (
           <Route path="/decks" element={<Decks />} />
           <Route path="/study/free-response/:deckId" element={<StudyFreeResponse />} />
           <Route path="/study/mcq/:deckId" element={<StudyMCQ />} />
+          <Route path="/study/true-false/:deckId" element={<StudyTrueFalse />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

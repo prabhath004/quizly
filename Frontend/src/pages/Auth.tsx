@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,15 +6,29 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Brain } from "lucide-react";
+import { Loader2, Brain, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import authService, { testBackendConnection } from "@/lib/auth";
 import quizlyLogo from "@/assets/quizly-logo.png";
 
 const Auth = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Test backend connection on mount
+  useEffect(() => {
+    const checkConnection = async () => {
+      const connected = await testBackendConnection();
+      setBackendConnected(connected);
+      if (!connected) {
+        setError("⚠️ Cannot connect to backend. Make sure the server is running on http://localhost:8000");
+      }
+    };
+    checkConnection();
+  }, []);
 
   // Login state
   const [loginEmail, setLoginEmail] = useState("");
@@ -31,27 +45,17 @@ const Auth = () => {
     setError("");
     setIsLoading(true);
 
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-
     try {
-      // Dummy login - accepts any credentials
-      if (loginEmail && loginPassword) {
-        // Store dummy token
-        localStorage.setItem("auth_token", "dummy-token-" + Date.now());
-        localStorage.setItem("user_email", loginEmail);
-        
-        toast({
-          title: "Welcome back!",
-          description: "You've successfully logged in.",
-        });
-        
-        navigate("/");
-      } else {
-        throw new Error("Please enter email and password");
-      }
-    } catch (err) {
-      setError("Please enter valid credentials.");
+      await authService.login(loginEmail, loginPassword);
+      
+      toast({
+        title: "Welcome back! 🎉",
+        description: "You've successfully logged in.",
+      });
+      
+      navigate("/");
+    } catch (err: any) {
+      setError(err.message || "Invalid credentials. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -66,35 +70,24 @@ const Auth = () => {
       return;
     }
 
-    if (signupPassword.length < 3) {
-      setError("Password must be at least 3 characters");
+    if (signupPassword.length < 8) {
+      setError("Password must be at least 8 characters");
       return;
     }
 
     setIsLoading(true);
 
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-
     try {
-      // Dummy signup - accepts any credentials
-      if (signupName && signupEmail && signupPassword) {
-        // Store dummy token and user info
-        localStorage.setItem("auth_token", "dummy-token-" + Date.now());
-        localStorage.setItem("user_email", signupEmail);
-        localStorage.setItem("user_name", signupName);
-        
-        toast({
-          title: "Account created!",
-          description: "Welcome to Quizly. Start creating flashcards now.",
-        });
-        
-        navigate("/");
-      } else {
-        throw new Error("Please fill all fields");
-      }
-    } catch (err) {
-      setError("Please fill all required fields.");
+      await authService.register(signupEmail, signupPassword, signupName);
+      
+      toast({
+        title: "Account created! 🎉",
+        description: "Welcome to Quizly. Start creating flashcards now.",
+      });
+      
+      navigate("/");
+    } catch (err: any) {
+      setError(err.message || "Registration failed. Please try again.");
     } finally {
       setIsLoading(false);
     }

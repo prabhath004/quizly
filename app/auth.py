@@ -78,11 +78,11 @@ async def get_current_user_optional(credentials: Optional[HTTPAuthorizationCrede
         return None
 
 
-@auth_router.post("/register", response_model=User, tags=["Authentication"])
+@auth_router.post("/register", response_model=Token, tags=["Authentication"])
 async def register(user_data: UserCreate):
-    """Register a new user"""
+    """Register a new user and return JWT token"""
     try:
-        # Direct Supabase call to YOUR auth system
+        # Register with Supabase Auth
         result = supabase.auth.sign_up({
             "email": user_data.email,
             "password": user_data.password,
@@ -93,21 +93,27 @@ async def register(user_data: UserCreate):
             }
         })
         
-        user = result.user.__dict__ if result.user else None
-        
-        if not user:
+        if not result.user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Registration failed"
             )
         
-        return User(**user)
+        # Create JWT token
+        settings = get_settings()
+        access_token = jwt.encode(
+            {"sub": result.user.id},
+            settings.secret_key,
+            algorithm=settings.algorithm
+        )
+        
+        return Token(access_token=access_token)
     
     except Exception as e:
         logger.error(f"Registration error: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Registration failed"
+            detail=str(e) if "User already registered" in str(e) else "Registration failed"
         )
 
 
