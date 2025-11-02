@@ -101,5 +101,3 @@ See `env.example` for reference.
 Once the backend is running, visit http://localhost:8000/docs for interactive API documentation.
 
 ---
-
-**Happy Learning! 🎓**
