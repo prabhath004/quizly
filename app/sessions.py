@@ -81,31 +81,63 @@ async def get_my_sessions(current_user = Depends(get_current_user)):
         )
 
 
-@sessions_router.get("/deck-cards/{deck_id}", response_model=List[Flashcard], tags=["Study Sessions"])
-async def get_deck_cards(
+@sessions_router.get("/deck/{deck_id}/flashcards", tags=["Study Sessions"])
+async def get_deck_flashcards(
     deck_id: str,
-    limit: int = 20,
+    limit: int = 50,
     current_user = Depends(get_current_user)
 ):
-    """Get flashcards from a deck for study"""
+    """Get flashcards from a deck for study (with MCQ/True-False support)"""
     try:
-        # Verify deck belongs to user
-        deck = await db.get_deck(deck_id)
-        if not deck or deck["user_id"] != current_user.id:
+        print(f"🔍 Fetching flashcards for deck: {deck_id}, user: {current_user.id}")
+        
+        # Use service client to bypass RLS for reading
+        deck_result = db.service_client.table("decks").select("*").eq("id", deck_id).execute()
+        deck = deck_result.data[0] if deck_result.data else None
+        
+        if not deck:
+            print(f"❌ Deck not found: {deck_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Deck not found"
             )
         
-        # Get flashcards from deck
-        flashcards_data = await db.get_deck_flashcards(deck_id)
+        if deck["user_id"] != current_user.id:
+            print(f"❌ Deck doesn't belong to user")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
         
-        # Convert to Flashcard models
+        print(f"✅ Deck found: {deck['title']}")
+        
+        # Get flashcards from deck using service client
+        flashcards_result = db.service_client.table("flashcards").select("*").eq("deck_id", deck_id).execute()
+        flashcards_data = flashcards_result.data if flashcards_result.data else []
+        
+        print(f"✅ Found {len(flashcards_data)} flashcards")
+        
+        # Return flashcards with proper format for MCQ/True-False
         flashcards = []
         for card_data in flashcards_data[:limit]:
-            flashcards.append(Flashcard(**card_data))
+            flashcard = {
+                "id": card_data["id"],
+                "question": card_data["question"],
+                "answer": card_data["answer"],
+                "difficulty": card_data.get("difficulty", "medium"),
+                "question_type": card_data.get("question_type", "free_response"),
+                "tags": card_data.get("tags", []),
+            }
+            
+            # Add MCQ/True-False specific fields
+            if card_data.get("mcq_options"):
+                flashcard["options"] = card_data["mcq_options"]
+                flashcard["correctAnswer"] = card_data.get("correct_option_index", 0)
+                flashcard["correct_option_index"] = card_data.get("correct_option_index", 0)
+            
+            flashcards.append(flashcard)
         
-        return flashcards
+        return {"flashcards": flashcards, "deck": deck}
     
     except HTTPException:
         raise

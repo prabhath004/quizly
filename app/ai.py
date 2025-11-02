@@ -3,7 +3,7 @@ Quizly Backend - AI Integration Module
 Handles flashcard generation and embeddings-based answer checking
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from app.models import (
     FlashcardGenerationRequest,
     FlashcardGenerationResponse,
@@ -45,81 +45,99 @@ async def generate_flashcards_from_text(
         start_time = time.time()
         client = get_openai_client()
         
-        # Create prompt based on question type
+        # Create optimized prompt based on question type
         if request.question_type == QuestionType.MCQ:
-            prompt = f"""
-            Generate {request.num_flashcards} high-quality Multiple Choice Questions (MCQ) from the following text content.
-            
-            Text Content:
-            {request.text_content}
-            
-            Requirements:
-            - Create questions that test understanding, not just memorization
-            - Provide exactly 4 options for each question
-            - Make the correct answer clear and unambiguous
-            - Include plausible distractors (wrong options that seem reasonable)
-            - Difficulty level: {request.difficulty_level}
-            - Questions should be clear and specific
-            
-            Return the flashcards in JSON format:
-            {{
-                "flashcards": [
-                    {{
-                        "question": "Question text here",
-                        "answer": "The correct answer explanation",
-                        "difficulty": "{request.difficulty_level}",
-                        "question_type": "mcq",
-                        "mcq_options": ["Option A", "Option B", "Option C", "Option D"],
-                        "correct_option_index": 0,
-                        "tags": ["tag1", "tag2"]
-                    }}
-                ]
-            }}
-            
-            IMPORTANT: 
-            - mcq_options must have exactly 4 options
-            - correct_option_index is 0-based (0, 1, 2, or 3)
-            - The answer field should explain WHY the correct option is right
-            """
+            prompt = f"""You are creating {request.num_flashcards} multiple choice questions at {request.difficulty_level} difficulty level.
+
+Content to analyze:
+{request.text_content[:3000]}
+
+Requirements:
+1. Create exactly {request.num_flashcards} questions
+2. Each question must have exactly 4 options
+3. Difficulty: {request.difficulty_level}
+4. Include plausible wrong answers
+5. Test understanding, not just memorization
+
+Return ONLY valid JSON in this exact format:
+{{
+  "flashcards": [
+    {{
+      "question": "What is X?",
+      "answer": "Explanation of correct answer",
+      "difficulty": "{request.difficulty_level}",
+      "question_type": "mcq",
+      "mcq_options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+      "correct_option_index": 1,
+      "tags": ["topic1", "topic2"]
+    }}
+  ]
+}}"""
+
+        elif request.question_type == QuestionType.TRUE_FALSE:
+            prompt = f"""You are creating {request.num_flashcards} true/false questions at {request.difficulty_level} difficulty level.
+
+Content to analyze:
+{request.text_content[:3000]}
+
+Requirements:
+1. Create exactly {request.num_flashcards} questions
+2. Each must be a clear true/false statement
+3. Difficulty: {request.difficulty_level}
+4. Include explanation for the answer
+
+Return ONLY valid JSON in this exact format:
+{{
+  "flashcards": [
+    {{
+      "question": "The Earth is flat",
+      "answer": "False. The Earth is an oblate spheroid.",
+      "difficulty": "{request.difficulty_level}",
+      "question_type": "true_false",
+      "mcq_options": ["True", "False"],
+      "correct_option_index": 1,
+      "tags": ["topic1"]
+    }}
+  ]
+}}"""
+
         else:
             # Free response questions
-            prompt = f"""
-            Generate {request.num_flashcards} high-quality free-response flashcards from the following text content.
-            
-            Text Content:
-            {request.text_content}
-            
-            Requirements:
-            - Create questions that test understanding, not just memorization
-            - Make answers concise but comprehensive (1-3 sentences)
-            - Difficulty level: {request.difficulty_level}
-            - Questions should be clear and specific
-            - Answers should be educational and informative
-            - These are open-ended questions where users can speak their answer
-            
-            Return the flashcards in JSON format:
-            {{
-                "flashcards": [
-                    {{
-                        "question": "Question text here",
-                        "answer": "Answer text here",
-                        "difficulty": "{request.difficulty_level}",
-                        "question_type": "free_response",
-                        "tags": ["tag1", "tag2"]
-                    }}
-                ]
-            }}
-            """
+            prompt = f"""You are creating {request.num_flashcards} open-ended questions at {request.difficulty_level} difficulty level.
+
+Content to analyze:
+{request.text_content[:3000]}
+
+Requirements:
+1. Create exactly {request.num_flashcards} questions
+2. Questions should be open-ended (require explanation)
+3. Difficulty: {request.difficulty_level}
+4. Answers should be 2-3 sentences
+5. Questions students can speak aloud
+
+Return ONLY valid JSON in this exact format:
+{{
+  "flashcards": [
+    {{
+      "question": "Explain the concept of X",
+      "answer": "X is defined as... It works by... This is important because...",
+      "difficulty": "{request.difficulty_level}",
+      "question_type": "free_response",
+      "tags": ["topic1", "topic2"]
+    }}
+  ]
+}}"""
         
-        # Call OpenAI API
+        # Call OpenAI API with optimized parameters
         response = client.chat.completions.create(
             model=get_settings().flashcard_model,
             messages=[
-                {"role": "system", "content": "You are an expert educator creating high-quality flashcards for effective learning."},
+                {"role": "system", "content": "Expert educator. Create JSON flashcards. No markdown, just valid JSON."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=2000,
-            temperature=0.7
+            max_tokens=1500 if request.num_flashcards <= 10 else 2500,  # Dynamic token limit
+            temperature=0.3,  # Lower temperature for more consistent JSON
+            response_format={ "type": "json_object" }  # Force JSON response
         )
         
         # Parse response
@@ -128,16 +146,20 @@ async def generate_flashcards_from_text(
         
         # Extract JSON from response
         try:
-            # Find JSON in the response
-            start_idx = content.find('{')
-            end_idx = content.rfind('}') + 1
-            json_content = content[start_idx:end_idx]
-            parsed_data = json.loads(json_content)
-            
+            # Since we're using JSON mode, content should already be valid JSON
+            parsed_data = json.loads(content)
             flashcards_data = parsed_data.get("flashcards", [])
             
-        except (json.JSONDecodeError, KeyError) as e:
+            if not flashcards_data:
+                logger.error(f"No flashcards in response: {content[:200]}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="No flashcards generated"
+                )
+            
+        except json.JSONDecodeError as e:
             logger.error(f"Failed to parse OpenAI response: {e}")
+            logger.error(f"Response content: {content[:500]}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to parse AI response"
@@ -171,8 +193,8 @@ async def generate_flashcards_from_text(
                 "deck_id": ""  # Will be set when creating the deck
             }
             
-            # Add MCQ-specific fields if applicable
-            if QuestionType(question_type_str) == QuestionType.MCQ:
+            # Add MCQ/True-False specific fields if applicable
+            if QuestionType(question_type_str) in [QuestionType.MCQ, QuestionType.TRUE_FALSE]:
                 flashcard_dict["mcq_options"] = card_data.get("mcq_options", [])
                 flashcard_dict["correct_option_index"] = card_data.get("correct_option_index", 0)
             
@@ -277,33 +299,46 @@ async def evaluate_answer_similarity(
         )
 
 
-@ai_router.post("/generate-flashcards", response_model=FlashcardGenerationResponse, tags=["AI Services"])
+@ai_router.post("/generate-flashcards", tags=["AI Services"])
 async def generate_flashcards(
+    deck_title: str = Form("Generated Deck"),
+    num_flashcards: int = Form(10),
+    difficulty_level: str = Form("medium"),
+    question_type: str = Form("free_response"),
+    text_content: str = Form(None),
     file: UploadFile = File(None),
-    deck_title: str = "Generated Deck",
-    num_flashcards: int = 10,
-    difficulty_level: str = "medium",
-    question_type: str = "free_response",  # "mcq" or "free_response"
-    text_content: str = None,
+    save_to_db: bool = Form(True),
     current_user = Depends(get_current_user)
 ):
-    """Generate flashcards from text content OR uploaded file
+    """Generate flashcards and optionally save to database
     
     Question Types:
     - mcq: Multiple Choice Questions with 4 options
+    - true_false: True/False questions
     - free_response: Open-ended questions (users can speak their answer)
+    
+    Returns: Generated flashcards with deck_id if saved
     """
     try:
+        # Log received parameters with print for immediate visibility
+        print(f"📥 Received params: deck_title={deck_title}, num={num_flashcards}, difficulty={difficulty_level}, type={question_type}, save_to_db={save_to_db}")
+        print(f"📄 Has file: {file is not None and file.filename}, Has text: {text_content is not None and len(text_content or '') > 0}")
+        logger.info(f"📥 Received params: deck_title={deck_title}, num={num_flashcards}, difficulty={difficulty_level}, type={question_type}, save_to_db={save_to_db}")
+        logger.info(f"📄 Has file: {file is not None and file.filename}, Has text: {text_content is not None and len(text_content or '') > 0}")
+        
         # Determine input source
         if file and file.filename:
             # File input - extract text first
+            logger.info(f"📁 Processing file: {file.filename}")
             from app.ingest import extract_text_with_openai
             file_content = await file.read()
             text_content = await extract_text_with_openai(file_content, file.filename)
-        elif text_content:
+            logger.info(f"✅ Extracted {len(text_content)} characters from file")
+        elif text_content and len(text_content.strip()) > 0:
             # Text input - use directly
-            pass
+            logger.info(f"📝 Using text input: {len(text_content)} characters")
         else:
+            logger.error("❌ No content provided")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Either provide text content or upload a file"
@@ -319,7 +354,100 @@ async def generate_flashcards(
         )
         
         # Generate flashcards
-        return await generate_flashcards_from_text(generation_request, current_user)
+        flashcard_result = await generate_flashcards_from_text(generation_request, current_user)
+        
+        # Save to database if requested
+        if save_to_db:
+            try:
+                # Create deck in Supabase using service client to bypass RLS
+                deck_data = {
+                    "title": deck_title,
+                    "user_id": current_user.id,
+                    "description": f"{question_type.upper()} flashcards - {difficulty_level} difficulty"
+                }
+                
+                # Use service client to bypass RLS during creation
+                print(f"💾 Creating deck: {deck_title}")
+                logger.info(f"💾 Creating deck: {deck_title}")
+                deck_insert_result = db.service_client.table("decks").insert(deck_data).execute()
+                deck = deck_insert_result.data[0] if deck_insert_result.data else None
+                
+                if not deck:
+                    print(f"❌ Failed to create deck in database")
+                    logger.error(f"❌ Failed to create deck in database")
+                    raise Exception("Deck creation failed")
+                
+                print(f"✅ Deck created with ID: {deck['id']}")
+                logger.info(f"✅ Deck created with ID: {deck['id']}")
+                
+                if deck:
+                    # Save all flashcards to database using service client
+                    flashcards_to_save = []
+                    for flashcard in flashcard_result.flashcards:
+                        flashcard_dict = {
+                            "deck_id": deck["id"],
+                            "question": flashcard.question,
+                            "answer": flashcard.answer,
+                            "difficulty": flashcard.difficulty.value,
+                            "question_type": flashcard.question_type.value,
+                            "tags": flashcard.tags,
+                        }
+                        
+                        # Add MCQ/True-False specific fields
+                        if flashcard.mcq_options:
+                            flashcard_dict["mcq_options"] = flashcard.mcq_options
+                            flashcard_dict["correct_option_index"] = flashcard.correct_option_index
+                        
+                        flashcards_to_save.append(flashcard_dict)
+                    
+                    # Use service client for batch insert
+                    print(f"💾 Saving {len(flashcards_to_save)} flashcards to database...")
+                    logger.info(f"💾 Saving {len(flashcards_to_save)} flashcards to database...")
+                    saved_result = db.service_client.table("flashcards").insert(flashcards_to_save).execute()
+                    saved_cards = saved_result.data if saved_result.data else []
+                    
+                    print(f"✅ Saved {len(saved_cards)} flashcards to deck {deck['id']}")
+                    logger.info(f"✅ Saved {len(saved_cards)} flashcards to deck {deck['id']}")
+                    
+                    return {
+                        "deck_id": deck["id"],
+                        "deck_title": deck_title,
+                        "question_type": question_type,
+                        "difficulty": difficulty_level,
+                        "flashcards": [
+                            {
+                                "id": card.get("id"),
+                                "question": card.get("question"),
+                                "answer": card.get("answer"),
+                                "difficulty": card.get("difficulty"),
+                                "question_type": card.get("question_type"),
+                                "mcq_options": card.get("mcq_options"),
+                                "correct_option_index": card.get("correct_option_index"),
+                                "tags": card.get("tags", [])
+                            }
+                            for card in saved_cards
+                        ],
+                        "processing_time": flashcard_result.processing_time,
+                        "tokens_used": flashcard_result.tokens_used,
+                        "saved_count": len(saved_cards)
+                    }
+            except Exception as e:
+                logger.error(f"❌ Error saving to database: {e}")
+                # Return generated flashcards even if save fails
+                return {
+                    "deck_id": None,
+                    "error": "Failed to save to database",
+                    "flashcards": flashcard_result.flashcards,
+                    "processing_time": flashcard_result.processing_time,
+                    "tokens_used": flashcard_result.tokens_used,
+                }
+        
+        # If not saving to DB, return flashcard result
+        return {
+            "flashcards": flashcard_result.flashcards,
+            "processing_time": flashcard_result.processing_time,
+            "tokens_used": flashcard_result.tokens_used,
+        }
     
     except HTTPException:
         raise
@@ -342,23 +470,27 @@ async def evaluate_answer(
     For Free Response: Uses AI embeddings to evaluate semantic similarity
     """
     try:
-        # Handle MCQ evaluation
-        if request.question_type == QuestionType.MCQ:
-            # For MCQ, user_answer should be the option index (as string)
+        # Handle MCQ and True/False evaluation
+        if request.question_type in [QuestionType.MCQ, QuestionType.TRUE_FALSE]:
+            # For MCQ/TF, user_answer should be the option index (as string)
             try:
                 user_option_index = int(request.user_answer)
                 is_correct = user_option_index == request.correct_option_index
                 similarity_score = 1.0 if is_correct else 0.0
                 
                 if is_correct:
-                    feedback = "Correct! Well done."
+                    feedback = "✅ Correct! Well done."
                 else:
-                    feedback = f"Incorrect. The correct answer was option {request.correct_option_index}."
+                    if request.question_type == QuestionType.TRUE_FALSE:
+                        correct_ans = "True" if request.correct_option_index == 0 else "False"
+                        feedback = f"❌ Incorrect. The correct answer is: {correct_ans}"
+                    else:
+                        feedback = f"❌ Incorrect. The correct answer was option {request.correct_option_index}."
                 
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="For MCQ, user_answer must be the option index (0-3)"
+                    detail="For MCQ/True-False, user_answer must be the option index"
                 )
         
         # Handle Free Response evaluation

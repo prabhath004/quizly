@@ -12,11 +12,11 @@ import { cn } from "@/lib/utils";
 interface Flashcard {
   id: string;
   question: string;
-  options: string[];
-  correctAnswer: number;
+  answer: string;
+  correct_option_index: number;
 }
 
-const StudyMCQ = () => {
+const StudyTrueFalse = () => {
   const { deckId } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -36,24 +36,17 @@ const StudyMCQ = () => {
   const fetchDeckData = async () => {
     setIsLoading(true);
     try {
-      console.log("📚 Fetching deck:", deckId);
       const token = localStorage.getItem("auth_token");
       const response = await fetch(`http://localhost:8000/api/sessions/deck/${deckId}/flashcards`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!response.ok) {
-        console.error("❌ Failed to fetch deck:", response.status);
-        throw new Error("Failed to fetch deck");
-      }
+      if (!response.ok) throw new Error("Failed to fetch deck");
 
       const data = await response.json();
-      console.log("✅ Deck data received:", data);
-      setDeck(data.deck || { title: "MCQ Quiz" });
+      setDeck({ title: "True/False Quiz" });
       setFlashcards(data.flashcards || []);
-      console.log("🎴 Loaded flashcards:", data.flashcards?.length);
     } catch (err) {
-      console.error("❌ Error loading deck:", err);
       toast({
         title: "Error",
         description: "Failed to load flashcards. Please try again.",
@@ -65,17 +58,12 @@ const StudyMCQ = () => {
     }
   };
 
-  const handleOptionSelect = (optionIndex: number) => {
+  const handleOptionSelect = async (optionIndex: number) => {
     if (showResult) return;
     setSelectedOption(optionIndex);
-  };
-
-  const handleCheckAnswer = async () => {
-    if (selectedOption === null) return;
-    
     setShowResult(true);
     
-    // Evaluate with backend
+    // Evaluate answer with backend
     try {
       const token = localStorage.getItem("auth_token");
       const response = await fetch("http://localhost:8000/api/ai/evaluate-answer", {
@@ -85,10 +73,10 @@ const StudyMCQ = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          user_answer: selectedOption.toString(),
-          correct_answer: currentCard.options[currentCard.correctAnswer],
-          question_type: "mcq",
-          correct_option_index: currentCard.correctAnswer,
+          user_answer: optionIndex.toString(),
+          correct_answer: currentCard.answer,
+          question_type: "true_false",
+          correct_option_index: currentCard.correct_option_index,
         }),
       });
 
@@ -109,10 +97,6 @@ const StudyMCQ = () => {
       }
     } catch (error) {
       console.error("Error evaluating answer:", error);
-      // Fallback to local validation
-      if (selectedOption === currentCard.correctAnswer) {
-        setScore(score + 1);
-      }
     }
   };
 
@@ -132,26 +116,13 @@ const StudyMCQ = () => {
     }
   };
 
-  const progress = flashcards.length > 0 ? ((currentIndex + 1) / flashcards.length) * 100 : 0;
+  const progress = ((currentIndex + 1) / flashcards.length) * 100;
   const currentCard = flashcards[currentIndex];
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (!flashcards || flashcards.length === 0) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Header isAuthenticated={true} onLogout={() => navigate("/auth")} />
-        <div className="container mx-auto py-8 px-4 text-center">
-          <h1 className="text-2xl font-bold mb-4">No Flashcards Found</h1>
-          <p className="text-muted-foreground mb-6">This deck doesn't have any flashcards yet.</p>
-          <Button onClick={() => navigate("/")}>Generate New Deck</Button>
-        </div>
       </div>
     );
   }
@@ -167,7 +138,7 @@ const StudyMCQ = () => {
               <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
                 {deck?.title}
               </h1>
-              <p className="text-muted-foreground">Multiple Choice Practice</p>
+              <p className="text-muted-foreground">True/False Practice</p>
             </div>
             <div className="flex gap-4">
               <Badge variant="secondary" className="text-lg">
@@ -187,10 +158,10 @@ const StudyMCQ = () => {
               <CardTitle className="text-2xl">{currentCard.question}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-3">
-                {currentCard?.options?.map((option, index) => {
+              <div className="grid grid-cols-2 gap-4">
+                {["True", "False"].map((option, index) => {
                   const isSelected = selectedOption === index;
-                  const isCorrect = index === currentCard.correctAnswer;
+                  const isCorrect = index === currentCard.correct_option_index;
                   const showCorrect = showResult && isCorrect;
                   const showIncorrect = showResult && isSelected && !isCorrect;
 
@@ -200,21 +171,21 @@ const StudyMCQ = () => {
                       onClick={() => handleOptionSelect(index)}
                       disabled={showResult}
                       className={cn(
-                        "w-full p-4 text-left rounded-lg border-2 transition-all duration-200",
-                        "hover:border-primary hover:shadow-md",
-                        isSelected && !showResult && "border-primary bg-primary/5",
+                        "p-8 text-2xl font-bold rounded-lg border-2 transition-all duration-200",
+                        "hover:border-primary hover:shadow-lg hover:scale-105",
+                        isSelected && !showResult && "border-primary bg-primary/10 scale-105",
                         showCorrect && "border-green-500 bg-green-500/10",
                         showIncorrect && "border-red-500 bg-red-500/10",
                         !isSelected && !showCorrect && "border-border"
                       )}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="flex-1">{option}</span>
+                      <div className="flex flex-col items-center gap-2">
+                        <span>{option}</span>
                         {showCorrect && (
-                          <CheckCircle2 className="h-5 w-5 text-green-600" />
+                          <CheckCircle2 className="h-6 w-6 text-green-600" />
                         )}
                         {showIncorrect && (
-                          <XCircle className="h-5 w-5 text-red-600" />
+                          <XCircle className="h-6 w-6 text-red-600" />
                         )}
                       </div>
                     </button>
@@ -222,31 +193,19 @@ const StudyMCQ = () => {
                 })}
               </div>
 
-              {!showResult ? (
-                <Button
-                  className="w-full"
-                  onClick={handleCheckAnswer}
-                  disabled={selectedOption === null}
-                >
-                  Check Answer
-                </Button>
-              ) : (
+              {showResult && (
                 <div className={cn(
                   "p-4 rounded-lg border-2 animate-fade-in",
-                  selectedOption === currentCard.correctAnswer
+                  selectedOption === currentCard.correct_option_index
                     ? "bg-green-500/10 border-green-500/20"
                     : "bg-red-500/10 border-red-500/20"
                 )}>
                   <p className="font-semibold mb-2">
-                    {selectedOption === currentCard.correctAnswer
-                      ? "🎉 Correct!"
+                    {selectedOption === currentCard.correct_option_index
+                      ? "✅ Correct!"
                       : "❌ Incorrect"}
                   </p>
-                  {selectedOption !== currentCard.correctAnswer && (
-                    <p className="text-sm">
-                      The correct answer is: <strong>{currentCard.options[currentCard.correctAnswer]}</strong>
-                    </p>
-                  )}
+                  <p className="text-sm"><strong>Explanation:</strong> {currentCard.answer}</p>
                 </div>
               )}
             </CardContent>
@@ -264,7 +223,7 @@ const StudyMCQ = () => {
           </Button>
 
           {currentIndex === flashcards.length - 1 ? (
-            <Button variant="success" onClick={() => navigate("/decks")}>
+            <Button variant="success" onClick={() => navigate("/")}>
               Complete ({score}/{flashcards.length})
             </Button>
           ) : (
@@ -279,4 +238,5 @@ const StudyMCQ = () => {
   );
 };
 
-export default StudyMCQ;
+export default StudyTrueFalse;
+

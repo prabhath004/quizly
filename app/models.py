@@ -18,7 +18,8 @@ class DifficultyLevel(str, Enum):
 
 class QuestionType(str, Enum):
     """Question types for flashcards"""
-    MCQ = "mcq"  # Multiple Choice Question
+    MCQ = "mcq"  # Multiple Choice Question (4 options)
+    TRUE_FALSE = "true_false"  # True/False question
     FREE_RESPONSE = "free_response"  # Open-ended question
 
 

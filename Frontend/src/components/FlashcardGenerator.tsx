@@ -12,10 +12,12 @@ import { useToast } from "@/hooks/use-toast";
 import { Lightbulb, Loader2, RotateCcw, CheckCircle2, Upload, FileText, Sparkles } from "lucide-react";
 
 type DeckData = {
+  deckId: string;
   deckTitle: string;
   numFlashcards: number;
   difficulty: string;
   questionType: string;
+  savedCount?: number;
 };
 
 const FlashcardGenerator = () => {
@@ -23,7 +25,7 @@ const FlashcardGenerator = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     deckTitle: "",
-    numFlashcards: 10,
+    numFlashcards: 10 as number | '',
     difficulty: "",
     questionType: "",
     textContent: "",
@@ -36,6 +38,7 @@ const FlashcardGenerator = () => {
 
   const isFormValid = 
     formData.deckTitle.trim().length >= 3 &&
+    typeof formData.numFlashcards === 'number' &&
     formData.numFlashcards >= 1 &&
     formData.numFlashcards <= 50 &&
     formData.difficulty &&
@@ -69,31 +72,64 @@ const FlashcardGenerator = () => {
 
     try {
       const formDataToSend = new FormData();
+      const numCards = typeof formData.numFlashcards === 'number' ? formData.numFlashcards : 10;
+      
       formDataToSend.append("deck_title", formData.deckTitle);
-      formDataToSend.append("num_flashcards", formData.numFlashcards.toString());
-      formDataToSend.append("difficulty", formData.difficulty);
+      formDataToSend.append("num_flashcards", numCards.toString());
+      formDataToSend.append("difficulty_level", formData.difficulty);
       formDataToSend.append("question_type", formData.questionType);
-      formDataToSend.append("text_content", formData.textContent);
+      
+      console.log("📤 Sending to backend:", {
+        deck_title: formData.deckTitle,
+        num_flashcards: numCards,
+        difficulty_level: formData.difficulty,
+        question_type: formData.questionType,
+      });
+      
+      if (formData.textContent.trim()) {
+        formDataToSend.append("text_content", formData.textContent);
+      }
       if (file) {
         formDataToSend.append("file", file);
       }
 
-      const res = await fetch("/api/ai/generate-flashcards", {
+      const token = localStorage.getItem("auth_token");
+      const res = await fetch("http://localhost:8000/api/ai/generate-flashcards", {
         method: "POST",
+        headers: {
+          "Authorization": token ? `Bearer ${token}` : "",
+        },
         body: formDataToSend,
       });
 
       clearInterval(progressInterval);
       setProgress(100);
 
-      if (!res.ok) throw new Error("Failed to generate deck");
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error("❌ Generation failed:", errorData);
+        throw new Error("Failed to generate deck");
+      }
 
       const data = await res.json();
-      setDeck(data);
+      console.log("✅ Backend response:", data);
+      
+      // Store deck data with correct structure
+      const deckData: DeckData = {
+        deckId: data.deck_id || "temp-id",
+        deckTitle: formData.deckTitle,
+        numFlashcards: data.saved_count || data.flashcards?.length || 0,
+        difficulty: formData.difficulty,
+        questionType: formData.questionType,
+        savedCount: data.saved_count || data.flashcards?.length || 0,
+      };
+      
+      console.log("📦 Deck data:", deckData);
+      setDeck(deckData);
 
       toast({
         title: "Success! 🎉",
-        description: `Generated ${data.numFlashcards} flashcards for "${data.deckTitle}"`,
+        description: `Generated ${deckData.savedCount} flashcards${data.deck_id ? ' and saved to database' : ''}!`,
       });
     } catch (err) {
       clearInterval(progressInterval);
@@ -170,14 +206,17 @@ const FlashcardGenerator = () => {
               className="flex-1" 
               size="lg"
               onClick={() => {
-                const studyPath = deck.questionType === "mcq" 
-                  ? `/study/mcq/${Date.now()}` 
-                  : `/study/free-response/${Date.now()}`;
+                let studyPath = `/study/free-response/${deck.deckId}`;
+                if (deck.questionType === "mcq") {
+                  studyPath = `/study/mcq/${deck.deckId}`;
+                } else if (deck.questionType === "true_false") {
+                  studyPath = `/study/true-false/${deck.deckId}`;
+                }
                 navigate(studyPath);
               }}
             >
               <Sparkles className="mr-2" />
-              View Deck
+              Start Studying
             </Button>
             <Button variant="outline" onClick={handleReset} size="lg">
               Generate Another
@@ -240,11 +279,20 @@ const FlashcardGenerator = () => {
                   min="1"
                   max="50"
                   value={formData.numFlashcards}
-                  onChange={(e) => setFormData({ ...formData, numFlashcards: parseInt(e.target.value) || 1 })}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({ ...formData, numFlashcards: value === '' ? '' as any : parseInt(value) });
+                  }}
+                  onBlur={(e) => {
+                    // If empty on blur, set to 10
+                    if (e.target.value === '') {
+                      setFormData({ ...formData, numFlashcards: 10 });
+                    }
+                  }}
                   disabled={loading}
                   className="transition-all duration-200 focus:shadow-sm"
                 />
-                {(formData.numFlashcards < 1 || formData.numFlashcards > 50) && (
+                {typeof formData.numFlashcards === 'number' && (formData.numFlashcards < 1 || formData.numFlashcards > 50) && (
                   <p className="text-sm text-destructive">Must be between 1-50</p>
                 )}
               </div>
@@ -260,10 +308,9 @@ const FlashcardGenerator = () => {
                     <SelectValue placeholder="Select level" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="beginner">Beginner</SelectItem>
-                    <SelectItem value="intermediate">Intermediate</SelectItem>
-                    <SelectItem value="advanced">Advanced</SelectItem>
-                    <SelectItem value="expert">Expert</SelectItem>
+                    <SelectItem value="easy">Easy</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="hard">Hard</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -280,11 +327,9 @@ const FlashcardGenerator = () => {
                   <SelectValue placeholder="Select type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="multiple-choice">Multiple Choice</SelectItem>
-                  <SelectItem value="true-false">True/False</SelectItem>
-                  <SelectItem value="fill-in-blank">Fill in the Blank</SelectItem>
-                  <SelectItem value="short-answer">Free Answer</SelectItem>
-                  <SelectItem value="mixed">Mixed</SelectItem>
+                  <SelectItem value="mcq">Multiple Choice (4 options)</SelectItem>
+                  <SelectItem value="true_false">True/False</SelectItem>
+                  <SelectItem value="free_response">Free Response (with voice)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

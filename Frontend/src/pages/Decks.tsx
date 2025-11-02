@@ -29,9 +29,8 @@ const Decks = () => {
   const fetchDecks = async () => {
     setIsLoading(true);
     try {
-      // Replace with your backend API call
       const token = localStorage.getItem("auth_token");
-      const response = await fetch("/api/decks", {
+      const response = await fetch("http://localhost:8000/api/decks/my-decks", {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -40,29 +39,47 @@ const Decks = () => {
       if (!response.ok) throw new Error("Failed to fetch decks");
 
       const data = await response.json();
-      setDecks(data.decks || []);
+      
+      // Transform backend data to frontend format
+      const transformedDecks = data.map((deck: any) => ({
+        id: deck.id,
+        title: deck.title,
+        numFlashcards: deck.flashcard_count || 0,
+        difficulty: deck.description?.includes("easy") ? "easy" : 
+                   deck.description?.includes("hard") ? "hard" : "medium",
+        questionType: deck.description?.includes("MCQ") ? "mcq" :
+                     deck.description?.includes("TRUE_FALSE") ? "true_false" : "free_response",
+        createdAt: deck.created_at,
+      }));
+      
+      setDecks(transformedDecks);
     } catch (err) {
       toast({
         title: "Error",
         description: "Failed to load your decks. Please try again.",
         variant: "destructive",
       });
-    } finally {
+    } finally{
       setIsLoading(false);
     }
   };
 
   const handleStudyDeck = (deck: Deck) => {
-    const studyPath = deck.questionType === "mcq" 
-      ? `/study/mcq/${deck.id}` 
-      : `/study/free-response/${deck.id}`;
+    console.log("🎯 Navigating to study deck:", deck);
+    let studyPath = `/study/free-response/${deck.id}`;
+    if (deck.questionType === "mcq") {
+      studyPath = `/study/mcq/${deck.id}`;
+    } else if (deck.questionType === "true_false") {
+      studyPath = `/study/true-false/${deck.id}`;
+    }
+    console.log("📍 Study path:", studyPath);
     navigate(studyPath);
   };
 
   const handleDeleteDeck = async (deckId: string) => {
     try {
       const token = localStorage.getItem("auth_token");
-      const response = await fetch(`/api/decks/${deckId}`, {
+      const response = await fetch(`http://localhost:8000/api/decks/${deckId}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
