@@ -51,6 +51,34 @@ class User(UserBase):
         from_attributes = True
 
 
+# Folder Models
+class FolderBase(BaseModel):
+    """Base folder model"""
+    name: str = Field(..., min_length=1, max_length=200)
+
+
+class FolderCreate(FolderBase):
+    """Folder creation model"""
+    pass
+
+
+class FolderUpdate(BaseModel):
+    """Folder update model"""
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+
+
+class Folder(FolderBase):
+    """Folder model"""
+    id: str
+    user_id: str
+    created_at: datetime
+    updated_at: datetime
+    deck_count: int = 0
+    
+    class Config:
+        from_attributes = True
+
+
 # Deck Models
 class DeckBase(BaseModel):
     """Base deck model"""
@@ -60,19 +88,21 @@ class DeckBase(BaseModel):
 
 class DeckCreate(DeckBase):
     """Deck creation model"""
-    pass
+    folder_id: Optional[str] = None
 
 
 class DeckUpdate(BaseModel):
     """Deck update model"""
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=500)
+    folder_id: Optional[str] = None
 
 
 class Deck(DeckBase):
     """Deck model"""
     id: str
     user_id: str
+    folder_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     flashcard_count: int = 0

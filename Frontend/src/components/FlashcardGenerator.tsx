@@ -335,7 +335,7 @@ const FlashcardGenerator = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="textContent">Text Content <span style={{ color: 'red' }}>*</span></Label>
+              <Label htmlFor="textContent">Text Content</Label>
               <Textarea
                 id="textContent"
                 placeholder="Paste your notes, text, or study material here..."

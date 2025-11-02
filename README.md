@@ -74,7 +74,9 @@ This script will:
 
 ## 📝 Features
 
-- ✅ Generate flashcards from PDFs or text
+- ✅ Generate flashcards from PDFs or text using AI
+- ✅ Create decks manually with custom flashcards
+- ✅ Edit existing decks and flashcards
 - ✅ Multiple question types: MCQ, True/False, Free Response
 - ✅ AI-powered answer evaluation
 - ✅ User authentication with JWT
