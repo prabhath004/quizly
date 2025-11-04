@@ -1,8 +1,3 @@
-"""
-Quizly Backend - Configuration and Settings
-Centralized configuration management using Pydantic Settings
-"""
-
 from pydantic_settings import BaseSettings
 from typing import Optional
 import os
@@ -39,7 +34,7 @@ class Settings(BaseSettings):
     # AI Settings
     embedding_model: str = "text-embedding-ada-002"
     flashcard_model: str = "gpt-3.5-turbo"
-    similarity_threshold: float = 0.8
+    similarity_threshold: float = 0.65  # Lowered from 0.8 for more natural language tolerance
     
     # Spaced Repetition Settings
     initial_interval_hours: int = 24

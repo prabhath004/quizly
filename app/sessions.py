@@ -89,33 +89,33 @@ async def get_deck_flashcards(
 ):
     """Get flashcards from a deck for study (with MCQ/True-False support)"""
     try:
-        print(f"🔍 Fetching flashcards for deck: {deck_id}, user: {current_user.id}")
+        print(f"Fetching flashcards for deck: {deck_id}, user: {current_user.id}")
         
         # Use service client to bypass RLS for reading
         deck_result = db.service_client.table("decks").select("*").eq("id", deck_id).execute()
         deck = deck_result.data[0] if deck_result.data else None
         
         if not deck:
-            print(f"❌ Deck not found: {deck_id}")
+            print(f"Deck not found: {deck_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Deck not found"
             )
         
         if deck["user_id"] != current_user.id:
-            print(f"❌ Deck doesn't belong to user")
+            print(f"Deck doesn't belong to user")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied"
             )
         
-        print(f"✅ Deck found: {deck['title']}")
+        print(f"Deck found: {deck['title']}")
         
         # Get flashcards from deck using service client
         flashcards_result = db.service_client.table("flashcards").select("*").eq("deck_id", deck_id).execute()
         flashcards_data = flashcards_result.data if flashcards_result.data else []
         
-        print(f"✅ Found {len(flashcards_data)} flashcards")
+        print(f"Found {len(flashcards_data)} flashcards")
         
         # Return flashcards with proper format for MCQ/True-False
         flashcards = []

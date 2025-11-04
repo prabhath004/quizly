@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, Loader2 } from "lucid
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { apiGet, apiPost } from "@/lib/api";
 
 interface Flashcard {
   id: string;
@@ -36,24 +37,14 @@ const StudyMCQ = () => {
   const fetchDeckData = async () => {
     setIsLoading(true);
     try {
-      console.log("📚 Fetching deck:", deckId);
-      const token = localStorage.getItem("auth_token");
-      const response = await fetch(`http://localhost:8000/api/sessions/deck/${deckId}/flashcards`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        console.error("❌ Failed to fetch deck:", response.status);
-        throw new Error("Failed to fetch deck");
-      }
-
-      const data = await response.json();
-      console.log("✅ Deck data received:", data);
+      console.log("Fetching deck:", deckId);
+      const data = await apiGet<{ flashcards: Flashcard[]; deck: any }>(`/flashcards/deck/${deckId}`);
+      console.log("Deck data received:", data);
       setDeck(data.deck || { title: "MCQ Quiz" });
       setFlashcards(data.flashcards || []);
-      console.log("🎴 Loaded flashcards:", data.flashcards?.length);
+      console.log("Loaded flashcards:", data.flashcards?.length);
     } catch (err) {
-      console.error("❌ Error loading deck:", err);
+      console.error("Error loading deck:", err);
       toast({
         title: "Error",
         description: "Failed to load flashcards. Please try again.",
@@ -77,27 +68,20 @@ const StudyMCQ = () => {
     
     // Evaluate with backend
     try {
-      const token = localStorage.getItem("auth_token");
-      const response = await fetch("http://localhost:8000/api/ai/evaluate-answer", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      const result = await apiPost<{ is_correct: boolean; similarity_score: number; feedback: string }>(
+        "/ai/evaluate-answer",
+        {
           user_answer: selectedOption.toString(),
           correct_answer: currentCard.options[currentCard.correctAnswer],
           question_type: "mcq",
           correct_option_index: currentCard.correctAnswer,
-        }),
-      });
-
-      const result = await response.json();
+        }
+      );
       
       if (result.is_correct) {
         setScore(score + 1);
         toast({
-          title: "Correct! 🎉",
+          title: "Correct!",
           description: result.feedback,
         });
       } else {
@@ -239,8 +223,8 @@ const StudyMCQ = () => {
                 )}>
                   <p className="font-semibold mb-2">
                     {selectedOption === currentCard.correctAnswer
-                      ? "🎉 Correct!"
-                      : "❌ Incorrect"}
+                      ? "Correct!"
+                      : "Incorrect"}
                   </p>
                   {selectedOption !== currentCard.correctAnswer && (
                     <p className="text-sm">

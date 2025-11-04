@@ -1,13 +1,8 @@
-"""
-Quizly Backend - Authentication Module
-Handles JWT validation with Supabase and user authentication
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from app.config import get_settings
-from app.models import User, UserCreate, UserUpdate, Token, TokenData
+from app.models import User, UserCreate, UserUpdate, Token, TokenData, LoginRequest
 from app.database import db
 from supabase import create_client
 from typing import Optional
@@ -92,13 +87,13 @@ async def register(user_data: UserCreate):
                 }
             }
         })
-        
+
         if not result.user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Registration failed"
             )
-        
+
         # Create JWT token
         settings = get_settings()
         access_token = jwt.encode(
@@ -106,9 +101,18 @@ async def register(user_data: UserCreate):
             settings.secret_key,
             algorithm=settings.algorithm
         )
-        
-        return Token(access_token=access_token)
-    
+
+        # Create User object
+        user = User(
+            id=result.user.id,
+            email=result.user.email,
+            full_name=user_data.full_name or "",
+            created_at=result.user.created_at,
+            updated_at=result.user.updated_at
+        )
+
+        return Token(access_token=access_token, user=user)
+
     except Exception as e:
         logger.error(f"Registration error: {e}")
         raise HTTPException(
@@ -118,21 +122,21 @@ async def register(user_data: UserCreate):
 
 
 @auth_router.post("/login", response_model=Token, tags=["Authentication"])
-async def login(email: str, password: str):
+async def login(login_data: LoginRequest):
     """Login user and return JWT token"""
     try:
         # Authenticate with Supabase
-        response = db.client.auth.sign_in_with_password({
-            "email": email,
-            "password": password
+        response = supabase.auth.sign_in_with_password({
+            "email": login_data.email,
+            "password": login_data.password
         })
-        
+
         if not response.user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials"
             )
-        
+
         # Create JWT token
         settings = get_settings()
         access_token = jwt.encode(
@@ -140,9 +144,18 @@ async def login(email: str, password: str):
             settings.secret_key,
             algorithm=settings.algorithm
         )
-        
-        return Token(access_token=access_token)
-    
+
+        # Create User object
+        user = User(
+            id=response.user.id,
+            email=response.user.email,
+            full_name=response.user.user_metadata.get("full_name", ""),
+            created_at=response.user.created_at,
+            updated_at=response.user.updated_at
+        )
+
+        return Token(access_token=access_token, user=user)
+
     except Exception as e:
         logger.error(f"Login error: {e}")
         raise HTTPException(

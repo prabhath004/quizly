@@ -205,6 +205,7 @@ class AnswerEvaluationRequest(BaseModel):
     user_answer: str = Field(..., min_length=1)
     correct_answer: str = Field(..., min_length=1)
     question_type: QuestionType = QuestionType.FREE_RESPONSE
+    question: Optional[str] = None  # For GPT-based evaluation context
     correct_option_index: Optional[int] = None  # For MCQ validation
 
 
@@ -229,10 +230,17 @@ class FileUploadResponse(BaseModel):
 
 
 # Authentication Models
+class LoginRequest(BaseModel):
+    """Login request model"""
+    email: EmailStr
+    password: str
+
+
 class Token(BaseModel):
     """Token model"""
     access_token: str
     token_type: str = "bearer"
+    user: Optional[User] = None
 
 
 class TokenData(BaseModel):

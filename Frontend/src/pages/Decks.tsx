@@ -9,6 +9,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { BookOpen, Play, Trash2, Loader2, Plus, Edit2, FolderPlus, Folder, FolderOpen, X, Move, MoreVertical } from "lucide-react";
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
+import authService from "@/lib/auth";
 // Temporarily disabled drag-and-drop due to React hook error
 // import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, closestCenter } from "@dnd-kit/core";
 // import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
@@ -46,6 +48,11 @@ const Decks = () => {
   const { toast } = useToast();
 
   useEffect(() => {
+    // Check if user is authenticated
+    if (!authService.isAuthenticated()) {
+      navigate("/auth");
+      return;
+    }
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -66,16 +73,7 @@ const Decks = () => {
   const fetchDecks = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("auth_token");
-      const response = await fetch("http://localhost:8000/api/decks/my-decks", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) throw new Error("Failed to fetch decks");
-
-      const data = await response.json();
+      const data = await apiGet<any[]>("/decks/my-decks");
       
       // Transform backend data to frontend format
       const transformedDecks = data.map((deck: any) => ({
@@ -104,26 +102,8 @@ const Decks = () => {
 
   const fetchFolders = async () => {
     try {
-      const token = localStorage.getItem("auth_token");
-      if (!token) {
-        console.warn("No auth token available");
-        return;
-      }
-
-      const response = await fetch("http://localhost:8000/api/folders/my-folders", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setFolders(data || []);
-      } else {
-        // If folders endpoint doesn't exist or returns error, just use empty array
-        console.warn("Folders endpoint returned error:", response.status);
-        setFolders([]);
-      }
+      const data = await apiGet<any[]>("/folders/my-folders");
+      setFolders(data || []);
     } catch (err) {
       // Silently fail - folders feature is optional
       console.warn("Failed to fetch folders (this is OK if folders table doesn't exist yet):", err);
@@ -143,17 +123,7 @@ const Decks = () => {
 
     setCreatingFolder(true);
     try {
-      const token = localStorage.getItem("auth_token");
-      const response = await fetch("http://localhost:8000/api/folders", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ name: newFolderName }),
-      });
-
-      if (!response.ok) throw new Error("Failed to create folder");
+      await apiPost("/folders", { name: newFolderName });
 
       await fetchFolders();
       setNewFolderName("");
@@ -176,15 +146,7 @@ const Decks = () => {
 
   const handleDeleteFolder = async (folderId: string) => {
     try {
-      const token = localStorage.getItem("auth_token");
-      const response = await fetch(`http://localhost:8000/api/folders/${folderId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) throw new Error("Failed to delete folder");
+      await apiDelete(`/folders/${folderId}`);
 
       toast({
         title: "Folder deleted",
@@ -202,28 +164,20 @@ const Decks = () => {
   };
 
   const handleStudyDeck = (deck: Deck) => {
-    console.log("🎯 Navigating to study deck:", deck);
+    console.log("Navigating to study deck:", deck);
     let studyPath = `/study/free-response/${deck.id}`;
     if (deck.questionType === "mcq") {
       studyPath = `/study/mcq/${deck.id}`;
     } else if (deck.questionType === "true_false") {
       studyPath = `/study/true-false/${deck.id}`;
     }
-    console.log("📍 Study path:", studyPath);
+    console.log("Study path:", studyPath);
     navigate(studyPath);
   };
 
   const handleDeleteDeck = async (deckId: string) => {
     try {
-      const token = localStorage.getItem("auth_token");
-      const response = await fetch(`http://localhost:8000/api/decks/${deckId}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) throw new Error("Failed to delete deck");
+      await apiDelete(`/decks/${deckId}`);
 
       toast({
         title: "Deck deleted",
@@ -243,19 +197,7 @@ const Decks = () => {
   // Simplified move function without drag-and-drop
   const moveDeckToFolder = async (deckId: string, folderId: string | null) => {
     try {
-      const token = localStorage.getItem("auth_token");
-      const response = await fetch(`http://localhost:8000/api/decks/${deckId}`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          folder_id: folderId,
-        }),
-      });
-
-      if (!response.ok) throw new Error("Failed to move deck");
+      await apiPut(`/decks/${deckId}`, { folder_id: folderId });
 
       const targetFolder = folderId ? folders.find(f => f.id === folderId) : null;
       toast({
@@ -300,13 +242,10 @@ const Decks = () => {
 
   const rootDecks = decks.filter(deck => !deck.folder_id);
 
-  const DeckCard = ({ deck, index, folders }: { deck: Deck; index: number; folders: Folder[] }) => {
+  const DeckCard = ({ deck, folders }: { deck: Deck; folders: Folder[] }) => {
     return (
       <div>
-        <Card
-          className="hover:shadow-elegant transition-all duration-200 hover:scale-[1.02] animate-fade-in"
-          style={{ animationDelay: `${index * 0.1}s` }}
-        >
+        <Card className="hover:shadow-elegant transition-shadow duration-200">
           <CardHeader>
             <CardTitle className="text-xl">{deck.title}</CardTitle>
             <CardDescription>
@@ -416,8 +355,8 @@ const Decks = () => {
           {isExpanded && folderDecks.length > 0 && (
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {folderDecks.map((deck, index) => (
-                  <DeckCard key={deck.id} deck={deck} index={index} folders={folders} />
+                {folderDecks.map((deck) => (
+                  <DeckCard key={deck.id} deck={deck} folders={folders} />
                 ))}
               </div>
             </CardContent>
@@ -432,7 +371,7 @@ const Decks = () => {
       <Header isAuthenticated={true} onLogout={() => navigate("/auth")} />
       
       <main className="container mx-auto py-12 px-4 sm:px-6 lg:px-8">
-        <div className="mb-8 animate-fade-in">
+        <div className="mb-8">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-4xl font-bold mb-2 bg-gradient-primary bg-clip-text text-transparent">
@@ -500,15 +439,15 @@ const Decks = () => {
               <div className="mb-4">
                 <h2 className="text-2xl font-semibold mb-4">Unorganized Decks</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {rootDecks.map((deck, index) => (
-                    <DeckCard key={deck.id} deck={deck} index={index} folders={folders} />
+                  {rootDecks.map((deck) => (
+                    <DeckCard key={deck.id} deck={deck} folders={folders} />
                   ))}
                 </div>
               </div>
             )}
 
             {folders.length === 0 && rootDecks.length === 0 && (
-              <Card className="relative text-center py-12 animate-fade-in overflow-hidden rounded-2xl shadow-md bg-gradient-to-br from-white via-pink-50 to-purple-100 bg-[length:200%_200%] animate-gradient-loop">
+              <Card className="relative text-center py-12 overflow-hidden rounded-2xl shadow-md bg-gradient-to-br from-white via-pink-50 to-purple-100">
                 <CardContent className="space-y-4">
                   <BookOpen className="h-16 w-16 mx-auto text-muted-foreground opacity-50" />
                   <div>

@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { Lightbulb, Loader2, RotateCcw, CheckCircle2, Upload, FileText, Sparkles } from "lucide-react";
+import { apiUpload } from "@/lib/api";
 
 type DeckData = {
   deckId: string;
@@ -79,7 +80,7 @@ const FlashcardGenerator = () => {
       formDataToSend.append("difficulty_level", formData.difficulty);
       formDataToSend.append("question_type", formData.questionType);
       
-      console.log("📤 Sending to backend:", {
+      console.log("Sending to backend:", {
         deck_title: formData.deckTitle,
         num_flashcards: numCards,
         difficulty_level: formData.difficulty,
@@ -93,27 +94,12 @@ const FlashcardGenerator = () => {
         formDataToSend.append("file", file);
       }
 
-      const token = localStorage.getItem("auth_token");
-      const res = await fetch("http://localhost:8000/api/ai/generate-flashcards", {
-        method: "POST",
-        headers: {
-          "Authorization": token ? `Bearer ${token}` : "",
-        },
-        body: formDataToSend,
-      });
+      const data = await apiUpload<any>("/ai/generate-flashcards", formDataToSend);
 
       clearInterval(progressInterval);
       setProgress(100);
+      console.log("Backend response:", data);
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        console.error("❌ Generation failed:", errorData);
-        throw new Error("Failed to generate deck");
-      }
-
-      const data = await res.json();
-      console.log("✅ Backend response:", data);
-      
       // Store deck data with correct structure
       const deckData: DeckData = {
         deckId: data.deck_id || "temp-id",
@@ -123,20 +109,22 @@ const FlashcardGenerator = () => {
         questionType: formData.questionType,
         savedCount: data.saved_count || data.flashcards?.length || 0,
       };
-      
-      console.log("📦 Deck data:", deckData);
+
+      console.log("Deck data:", deckData);
       setDeck(deckData);
 
       toast({
-        title: "Success! 🎉",
+        title: "Success!",
         description: `Generated ${deckData.savedCount} flashcards${data.deck_id ? ' and saved to database' : ''}!`,
       });
-    } catch (err) {
+    } catch (err: any) {
       clearInterval(progressInterval);
       setError(true);
+      const errorMessage = err?.message || err?.detail || "Unable to generate flashcards. Please try again.";
+      console.error("Flashcard generation error:", err);
       toast({
         title: "Generation Failed",
-        description: "Unable to generate flashcards. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -171,39 +159,39 @@ const FlashcardGenerator = () => {
 
   if (deck) {
     return (
-      <div className="w-full max-w-2xl mx-auto animate-fade-in">
+      <div className="w-full max-w-2xl mx-auto px-4">
         <Card className="shadow-glow border-success/20">
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
-              <CheckCircle2 className="w-16 h-16 text-success animate-scale-in" />
+              <CheckCircle2 className="w-12 h-12 sm:w-16 sm:h-16 text-success" />
             </div>
-            <CardTitle className="text-3xl">Deck Generated Successfully!</CardTitle>
-            <CardDescription>Your AI-powered flashcards are ready</CardDescription>
+            <CardTitle className="text-2xl sm:text-3xl">Deck Generated Successfully!</CardTitle>
+            <CardDescription className="text-sm sm:text-base">Your AI-powered flashcards are ready</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 p-6 bg-gradient-accent rounded-lg text-primary-foreground">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 p-4 sm:p-6 bg-gradient-accent rounded-lg text-primary-foreground">
               <div>
-                <p className="text-sm opacity-90">Deck Title</p>
-                <p className="font-semibold text-lg">{deck.deckTitle}</p>
+                <p className="text-xs sm:text-sm opacity-90">Deck Title</p>
+                <p className="font-semibold text-base sm:text-lg break-words">{deck.deckTitle}</p>
               </div>
               <div>
-                <p className="text-sm opacity-90">Flashcards</p>
-                <p className="font-semibold text-lg">{deck.numFlashcards} cards</p>
+                <p className="text-xs sm:text-sm opacity-90">Flashcards</p>
+                <p className="font-semibold text-base sm:text-lg">{deck.numFlashcards} cards</p>
               </div>
               <div>
-                <p className="text-sm opacity-90">Difficulty</p>
-                <p className="font-semibold text-lg capitalize">{deck.difficulty}</p>
+                <p className="text-xs sm:text-sm opacity-90">Difficulty</p>
+                <p className="font-semibold text-base sm:text-lg capitalize">{deck.difficulty}</p>
               </div>
               <div>
-                <p className="text-sm opacity-90">Question Type</p>
-                <p className="font-semibold text-lg capitalize">{deck.questionType}</p>
+                <p className="text-xs sm:text-sm opacity-90">Question Type</p>
+                <p className="font-semibold text-base sm:text-lg capitalize">{deck.questionType}</p>
               </div>
             </div>
           </CardContent>
-          <CardFooter className="flex gap-3">
-            <Button 
-              variant="hero" 
-              className="flex-1" 
+          <CardFooter className="flex flex-col sm:flex-row gap-3">
+            <Button
+              variant="hero"
+              className="flex-1 w-full"
               size="lg"
               onClick={() => {
                 let studyPath = `/study/free-response/${deck.deckId}`;
@@ -218,7 +206,7 @@ const FlashcardGenerator = () => {
               <Sparkles className="mr-2" />
               Start Studying
             </Button>
-            <Button variant="outline" onClick={handleReset} size="lg">
+            <Button variant="outline" onClick={handleReset} size="lg" className="w-full sm:w-auto">
               Generate Another
             </Button>
           </CardFooter>
@@ -228,25 +216,25 @@ const FlashcardGenerator = () => {
   }
 
   return (
-    <div className="w-full max-w-2xl mx-auto">
-      <Card className="shadow-elegant">
-        <CardHeader className="space-y-3">
+    <div className="w-full max-w-3xl mx-auto px-4">
+      <Card className="shadow-lg border-border/50 backdrop-blur">
+        <CardHeader className="space-y-1 pb-6 border-b">
           <div className="flex items-center gap-3">
-            <div className="p-3 rounded-lg bg-gradient-hero">
-              <Lightbulb className="w-6 h-6 text-primary-foreground" />
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500 to-blue-600">
+              <Lightbulb className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
             </div>
             <div>
-              <CardTitle className="text-2xl">AI Flashcard Generator</CardTitle>
-              <CardDescription>Generate intelligent flashcards from your notes or PDFs instantly</CardDescription>
+              <CardTitle className="text-xl sm:text-2xl font-semibold">AI Flashcard Generator</CardTitle>
+              <CardDescription className="text-xs sm:text-sm text-muted-foreground mt-1">Generate intelligent flashcards from your study materials</CardDescription>
             </div>
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-5 sm:space-y-6 pt-6">
           {error && (
-            <Alert variant="destructive" className="animate-fade-in">
+            <Alert variant="destructive" className="border-red-200 bg-red-50/50">
               <AlertDescription className="flex items-center justify-between">
-                <span>Failed to generate deck. Please try again.</span>
+                <span className="text-sm">Failed to generate deck. Please try again.</span>
                 <Button variant="ghost" size="sm" onClick={() => setError(false)}>
                   <RotateCcw className="w-4 h-4" />
                 </Button>
@@ -254,25 +242,29 @@ const FlashcardGenerator = () => {
             </Alert>
           )}
 
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="deckTitle">Deck Title <span style={{ color: 'red' }}>*</span></Label>
+              <Label htmlFor="deckTitle" className="text-sm font-medium text-foreground">
+                Deck Title <span className="text-red-500">*</span>
+              </Label>
               <Input
                 id="deckTitle"
                 placeholder="e.g., Biology Chapter 5: Cell Structure"
                 value={formData.deckTitle}
                 onChange={(e) => setFormData({ ...formData, deckTitle: e.target.value })}
                 disabled={loading}
-                className="transition-all duration-200 focus:shadow-sm"
+                className="h-11 border-border/60 focus-visible:ring-purple-500 focus-visible:border-purple-500"
               />
               {formData.deckTitle.length > 0 && formData.deckTitle.length < 3 && (
-                <p className="text-sm text-destructive">Title must be at least 3 characters</p>
+                <p className="text-xs text-red-500 mt-1.5">Title must be at least 3 characters</p>
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
               <div className="space-y-2">
-                <Label htmlFor="numFlashcards">Number of Cards <span style={{ color: 'red' }}>*</span></Label>
+                <Label htmlFor="numFlashcards" className="text-sm font-medium text-foreground">
+                  Number of Cards <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   id="numFlashcards"
                   type="number"
@@ -284,27 +276,28 @@ const FlashcardGenerator = () => {
                     setFormData({ ...formData, numFlashcards: value === '' ? '' as any : parseInt(value) });
                   }}
                   onBlur={(e) => {
-                    // If empty on blur, set to 10
                     if (e.target.value === '') {
                       setFormData({ ...formData, numFlashcards: 10 });
                     }
                   }}
                   disabled={loading}
-                  className="transition-all duration-200 focus:shadow-sm"
+                  className="h-11 border-border/60 focus-visible:ring-purple-500 focus-visible:border-purple-500"
                 />
                 {typeof formData.numFlashcards === 'number' && (formData.numFlashcards < 1 || formData.numFlashcards > 50) && (
-                  <p className="text-sm text-destructive">Must be between 1-50</p>
+                  <p className="text-xs text-red-500 mt-1.5">Must be between 1-50</p>
                 )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="difficulty">Difficulty Level <span style={{ color: 'red' }}>*</span></Label>
+                <Label htmlFor="difficulty" className="text-sm font-medium text-foreground">
+                  Difficulty Level <span className="text-red-500">*</span>
+                </Label>
                 <Select
                   value={formData.difficulty}
                   onValueChange={(value) => setFormData({ ...formData, difficulty: value })}
                   disabled={loading}
                 >
-                  <SelectTrigger id="difficulty" className="transition-all duration-200 focus:shadow-sm">
+                  <SelectTrigger id="difficulty" className="h-11 border-border/60 focus-visible:ring-purple-500">
                     <SelectValue placeholder="Select level" />
                   </SelectTrigger>
                   <SelectContent>
@@ -317,25 +310,27 @@ const FlashcardGenerator = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="questionType">Question Type <span style={{ color: 'red' }}>*</span></Label>
+              <Label htmlFor="questionType" className="text-sm font-medium text-foreground">
+                Question Type <span className="text-red-500">*</span>
+              </Label>
               <Select
                 value={formData.questionType}
                 onValueChange={(value) => setFormData({ ...formData, questionType: value })}
                 disabled={loading}
               >
-                <SelectTrigger id="questionType" className="transition-all duration-200 focus:shadow-sm">
+                <SelectTrigger id="questionType" className="h-11 border-border/60 focus-visible:ring-purple-500">
                   <SelectValue placeholder="Select type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="mcq">Multiple Choice (4 options)</SelectItem>
+                  <SelectItem value="mcq">Multiple Choice</SelectItem>
                   <SelectItem value="true_false">True/False</SelectItem>
-                  <SelectItem value="free_response">Free Response (with voice)</SelectItem>
+                  <SelectItem value="free_response">Free Response</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="textContent">Text Content</Label>
+              <Label htmlFor="textContent" className="text-sm font-medium text-foreground">Text Content</Label>
               <Textarea
                 id="textContent"
                 placeholder="Paste your notes, text, or study material here..."
@@ -343,15 +338,17 @@ const FlashcardGenerator = () => {
                 onChange={(e) => setFormData({ ...formData, textContent: e.target.value })}
                 disabled={loading}
                 rows={6}
-                className="transition-all duration-200 focus:shadow-sm resize-none"
+                className="resize-none border-border/60 focus-visible:ring-purple-500 focus-visible:border-purple-500"
               />
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {formData.textContent.length} characters
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="file">Optional: <span className="bg-gradient-primary bg-clip-text text-transparent">Upload a File</span></Label>
+              <Label htmlFor="file" className="text-sm font-medium text-foreground">
+                Optional: <span className="bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent font-semibold">Upload a File</span>
+              </Label>
               <div className="flex items-center gap-3">
                 <Input
                   id="file"
@@ -362,74 +359,79 @@ const FlashcardGenerator = () => {
                   className="hidden"
                 />
                 <Button
+                  type="button"
                   variant="outline"
                   onClick={() => document.getElementById("file")?.click()}
                   disabled={loading}
-                  className="flex-1"
+                  className="flex-1 h-11 border-border/60 hover:border-purple-500/50 hover:bg-purple-50/50"
                 >
-                  <Upload className="mr-2" />
-                  {file ? file.name : "Choose File"}
+                  <Upload className="mr-2 w-4 h-4" />
+                  <span className="truncate">{file ? file.name : "Choose File"}</span>
                 </Button>
                 {file && (
                   <Button
+                    type="button"
                     variant="ghost"
                     size="icon"
                     onClick={() => setFile(null)}
                     disabled={loading}
+                    className="h-11 w-11 shrink-0"
                   >
                     <RotateCcw className="w-4 h-4" />
                   </Button>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground flex items-center gap-1">
-                <FileText className="w-4 h-4" />
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" />
                 Supports PDF, DOC, DOCX, TXT
               </p>
             </div>
 
-            <Alert className="flex justify-center items-center text-center">
-              <AlertDescription className="text-sm">
-                💡 <strong>Notice:</strong> Please fill all fields before generating your deck.
+            <Alert className="border-blue-200 bg-blue-50/50">
+              <AlertDescription className="text-xs sm:text-sm text-blue-900">
+                <strong className="font-semibold">Note:</strong> Fill all required fields before generating your deck.
               </AlertDescription>
             </Alert>
           </div>
 
           {loading && (
-            <div className="space-y-2 animate-fade-in">
+            <div className="space-y-2.5 p-4 bg-purple-50/50 border border-purple-200 rounded-lg">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Generating flashcards...</span>
-                <span className="font-medium">{progress}%</span>
+                <span className="text-purple-900 font-medium">Generating flashcards...</span>
+                <span className="font-semibold text-purple-700">{progress}%</span>
               </div>
-              <Progress value={progress} className="h-2" />
+              <Progress value={progress} className="h-2 bg-purple-100" />
             </div>
           )}
         </CardContent>
 
-        <CardFooter className="flex gap-3">
+        <CardFooter className="flex flex-col sm:flex-row gap-3 pt-6 border-t">
           <Button
             variant="hero"
             onClick={handleSubmit}
             disabled={!isFormValid || loading}
-            className="flex-1"
+            className="flex-1 w-full h-11 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 shadow-md"
             size="lg"
           >
             {loading ? (
               <>
-                <Loader2 className="mr-2 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Generating...
               </>
             ) : (
               <>
-                <Sparkles className="mr-2" />
+                <Sparkles className="mr-2 h-4 w-4" />
                 Generate Deck
               </>
             )}
           </Button>
           <Button
+            type="button"
             variant="outline"
             onClick={handleReset}
             disabled={loading}
             size="lg"
+            className="w-full sm:w-auto h-11 border-border/60"
           >
             Clear Form
           </Button>
