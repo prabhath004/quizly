@@ -1,8 +1,3 @@
-"""
-Quizly Backend - Main FastAPI Application
-A smart AI-powered flashcard application with voice-based learning
-"""
-
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,7 +13,6 @@ load_dotenv()
 from app.auth import auth_router
 from app.ingest import ingest_router
 from app.ai import ai_router
-from app.sessions import sessions_router
 from app.decks import decks_router
 from app.flashcards import flashcards_router
 from app.folders import folders_router
@@ -29,11 +23,11 @@ from app.database import init_db
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
-    print("🚀 Starting Quizly Backend...")
+    print("Starting Quizly Backend...")
     await init_db()  # Initialize database connection
     yield
     # Shutdown
-    print("🛑 Shutting down Quizly Backend...")
+    print("Shutting down Quizly Backend...")
 
 
 # Create FastAPI application
@@ -80,7 +74,6 @@ async def root():
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(ingest_router, prefix="/api/ingest", tags=["File Ingestion"])
 app.include_router(ai_router, prefix="/api/ai", tags=["AI Services"])
-app.include_router(sessions_router, prefix="/api/sessions", tags=["Study Sessions"])
 app.include_router(decks_router, prefix="/api/decks", tags=["Decks"])
 app.include_router(flashcards_router, prefix="/api/flashcards", tags=["Flashcards"])
 app.include_router(folders_router, prefix="/api/folders", tags=["Folders"])

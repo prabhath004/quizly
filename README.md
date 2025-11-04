@@ -1,8 +1,8 @@
-# 🧠 Quizly - AI-Powered Flashcard Generator
+# Quizly - AI-Powered Flashcard Generator
 
 An intelligent flashcard generation platform with FastAPI backend and React frontend. Generate flashcards from PDFs or text using OpenAI's GPT-4o.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Python 3.8+
@@ -11,7 +11,7 @@ An intelligent flashcard generation platform with FastAPI backend and React fron
 
 ---
 
-## 📡 Backend Setup
+## Backend Setup
 
 1. **Create virtual environment**
 ```bash
@@ -35,7 +35,7 @@ The backend will be available at:
 
 ---
 
-## 💻 Frontend Setup
+## Frontend Setup
 
 1. **Navigate to frontend directory**
 ```bash
@@ -57,7 +57,7 @@ The frontend will be available at:
 
 ---
 
-## 🎯 Start Both Servers (Alternative)
+## Start Both Servers (Alternative)
 
 You can start both backend and frontend with one command:
 
@@ -72,20 +72,20 @@ This script will:
 
 ---
 
-## 📝 Features
+## Features
 
-- ✅ Generate flashcards from PDFs or text using AI
-- ✅ Create decks manually with custom flashcards
-- ✅ Edit existing decks and flashcards
-- ✅ Multiple question types: MCQ, True/False, Free Response
-- ✅ AI-powered answer evaluation
-- ✅ User authentication with JWT
-- ✅ Speech-to-text support for free response
-- ✅ Deck management and study sessions
+- Generate flashcards from PDFs or text using AI
+- Create decks manually with custom flashcards
+- Edit existing decks and flashcards
+- Multiple question types: MCQ, True/False, Free Response
+- AI-powered answer evaluation
+- User authentication with JWT
+- Speech-to-text support for free response
+- Deck management and study sessions
 
 ---
 
-## 🔧 Configuration
+## Configuration
 
 Make sure your `.env` file contains:
 - `SUPABASE_URL`
@@ -98,7 +98,7 @@ See `env.example` for reference.
 
 ---
 
-## 📚 API Documentation
+## API Documentation
 
 Once the backend is running, visit http://localhost:8000/docs for interactive API documentation.
 

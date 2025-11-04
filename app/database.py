@@ -1,8 +1,3 @@
-"""
-Quizly Backend - Database Connection and Supabase Integration
-Handles all database operations and Supabase client initialization
-"""
-
 from supabase import create_client, Client
 from app.config import get_settings
 from typing import Optional, Dict, Any, List
@@ -30,10 +25,10 @@ class SupabaseClient:
         try:
             # Simple query to test connection
             result = self.client.table("users").select("id").limit(1).execute()
-            logger.info("✅ Supabase connection successful")
+            logger.info("Supabase connection successful")
             return True
         except Exception as e:
-            logger.error(f"❌ Supabase connection failed: {e}")
+            logger.error(f"Supabase connection failed: {e}")
             return False
     
     # User operations
@@ -237,10 +232,10 @@ db = SupabaseClient()
 
 async def init_db():
     """Initialize database connection"""
-    logger.info("🔌 Initializing database connection...")
+    logger.info("Initializing database connection...")
     success = await db.test_connection()
     if success:
-        logger.info("✅ Database initialized successfully")
+        logger.info("Database initialized successfully")
     else:
-        logger.error("❌ Database initialization failed")
+        logger.error("Database initialization failed")
     return success

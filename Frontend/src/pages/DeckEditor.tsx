@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Plus, Trash2, Save, ArrowLeft, Edit2 } from "lucide-react";
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
+import { apiGet, apiPut, apiPost } from "@/lib/api";
 
 interface Flashcard {
   id?: string;
@@ -45,28 +46,14 @@ const DeckEditor = () => {
   const fetchDeck = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem("auth_token");
-      
       // Fetch deck info
-      const deckResponse = await fetch(`http://localhost:8000/api/decks/${deckId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (!deckResponse.ok) throw new Error("Failed to fetch deck");
-      
-      const deck = await deckResponse.json();
+      const deck = await apiGet<any>(`/decks/${deckId}`);
       setDeckTitle(deck.title);
       setDeckDescription(deck.description || "");
-      
+
       // Fetch flashcards
-      const flashcardsResponse = await fetch(`http://localhost:8000/api/flashcards/deck/${deckId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (flashcardsResponse.ok) {
-        const data = await flashcardsResponse.json();
-        setFlashcards(data.length > 0 ? data : [{ question: "", answer: "", difficulty: "medium", question_type: "free_response" }]);
-      }
+      const flashcardsData = await apiGet<any>(`/flashcards/deck/${deckId}`);
+      setFlashcards(flashcardsData.length > 0 ? flashcardsData : [{ question: "", answer: "", difficulty: "medium", question_type: "free_response" }]);
     } catch (err) {
       toast({
         title: "Error",
@@ -151,40 +138,21 @@ const DeckEditor = () => {
 
     setSaving(true);
     try {
-      const token = localStorage.getItem("auth_token");
       let currentDeckId = deckId;
 
       // Create or update deck
       if (isEditMode && deckId) {
         // Update deck
-        await fetch(`http://localhost:8000/api/decks/${deckId}`, {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            title: deckTitle,
-            description: deckDescription,
-          }),
+        await apiPut(`/decks/${deckId}`, {
+          title: deckTitle,
+          description: deckDescription,
         });
       } else {
         // Create new deck
-        const deckResponse = await fetch("http://localhost:8000/api/decks", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            title: deckTitle,
-            description: deckDescription,
-          }),
+        const newDeck = await apiPost<any>("/decks", {
+          title: deckTitle,
+          description: deckDescription,
         });
-
-        if (!deckResponse.ok) throw new Error("Failed to create deck");
-        
-        const newDeck = await deckResponse.json();
         currentDeckId = newDeck.id;
       }
 
@@ -205,29 +173,15 @@ const DeckEditor = () => {
 
         if (flashcard.id) {
           // Update existing
-          await fetch(`http://localhost:8000/api/flashcards/${flashcard.id}`, {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(flashcardData),
-          });
+          await apiPut(`/flashcards/${flashcard.id}`, flashcardData);
         } else {
           // Create new
-          await fetch("http://localhost:8000/api/flashcards", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(flashcardData),
-          });
+          await apiPost("/flashcards", flashcardData);
         }
       }
 
       toast({
-        title: "Success! 🎉",
+        title: "Success!",
         description: isEditMode ? "Deck updated successfully!" : "Deck created successfully!",
       });
 
@@ -271,7 +225,7 @@ const DeckEditor = () => {
     <div className="min-h-screen bg-background">
       <Header isAuthenticated={true} onLogout={() => navigate("/auth")} />
       
-      <main className="container mx-auto py-12 px-4 sm:px-6 lg:px-8 max-w-4xl">
+      <main className="container mx-auto py-6 sm:py-12 px-4 sm:px-6 lg:px-8 max-w-4xl">
         <Button
           variant="ghost"
           onClick={() => navigate("/decks")}
@@ -281,10 +235,10 @@ const DeckEditor = () => {
           Back to Decks
         </Button>
 
-        <Card className="shadow-elegant mb-6">
+        <Card className="shadow-elegant mb-4 sm:mb-6">
           <CardHeader>
-            <CardTitle>{isEditMode ? "Edit Deck" : "Create New Deck"}</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-xl sm:text-2xl">{isEditMode ? "Edit Deck" : "Create New Deck"}</CardTitle>
+            <CardDescription className="text-sm sm:text-base">
               {isEditMode ? "Update your deck and flashcards" : "Manually create a flashcard deck"}
             </CardDescription>
           </CardHeader>
@@ -312,10 +266,10 @@ const DeckEditor = () => {
           </CardContent>
         </Card>
 
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold">Flashcards</h2>
-            <Button onClick={addFlashcard}>
+        <div className="space-y-4 sm:space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <h2 className="text-xl sm:text-2xl font-bold">Flashcards</h2>
+            <Button onClick={addFlashcard} className="w-full sm:w-auto">
               <Plus className="mr-2 h-4 w-4" />
               Add Card
             </Button>
@@ -445,11 +399,11 @@ const DeckEditor = () => {
           ))}
         </div>
 
-        <div className="flex gap-4 justify-end mt-8 sticky bottom-4 bg-background p-4 rounded-lg border">
-          <Button variant="outline" onClick={() => navigate("/decks")}>
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-end mt-6 sm:mt-8 sticky bottom-4 bg-background p-3 sm:p-4 rounded-lg border">
+          <Button variant="outline" onClick={() => navigate("/decks")} className="w-full sm:w-auto">
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
             {saving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -469,4 +423,3 @@ const DeckEditor = () => {
 };
 
 export default DeckEditor;
-
