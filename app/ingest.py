@@ -1,8 +1,3 @@
-"""
-Quizly Backend - File Ingestion Module
-Handles any document type using OpenAI Vision for maximum accuracy
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from app.models import (
     FileUploadResponse, 
@@ -48,7 +43,7 @@ async def extract_text_with_openai(file_content: bytes, filename: str) -> str:
             raw_text += page.get_text() + "\n\n"
         doc.close()
         
-        logger.info(f"📄 Extracted {len(raw_text)} characters from {page_count} pages in {filename}")
+        logger.info(f"Extracted {len(raw_text)} characters from {page_count} pages in {filename}")
         
         # If the PDF is very large, chunk it and analyze separately
         max_chars_per_chunk = 15000  # Safe limit for GPT-4o
@@ -114,9 +109,9 @@ async def extract_text_with_openai(file_content: bytes, filename: str) -> str:
             
             # Combine all summaries
             analyzed_content = "\n\n--- COMBINED SUMMARY ---\n\n" + "\n\n".join(all_summaries)
-            logger.info(f"📚 Analyzed {len(chunks)} chunks from large PDF")
+            logger.info(f"Analyzed {len(chunks)} chunks from large PDF")
         
-        logger.info(f"✅ OpenAI analyzed PDF {filename}: {len(analyzed_content)} characters from {len(raw_text)} raw characters")
+        logger.info(f"OpenAI analyzed PDF {filename}: {len(analyzed_content)} characters from {len(raw_text)} raw characters")
         
         return analyzed_content
         

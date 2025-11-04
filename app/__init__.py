@@ -1,8 +1,3 @@
-"""
-Quizly Backend - Configuration and Settings
-Centralized configuration management using Pydantic Settings
-"""
-
 from pydantic_settings import BaseSettings
 from typing import Optional
 import os

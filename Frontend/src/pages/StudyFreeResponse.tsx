@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, Mic, MicOff, Loader2, CheckCircle2 } from "lucide-react";
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
+import { apiGet, apiPost } from "@/lib/api";
 
 interface Flashcard {
   id: string;
@@ -27,7 +28,9 @@ const StudyFreeResponse = () => {
   const [showAnswer, setShowAnswer] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isEvaluating, setIsEvaluating] = useState(false);
   const [recognition, setRecognition] = useState<any>(null);
+  const [evaluationResult, setEvaluationResult] = useState<{ is_correct: boolean; similarity_score: number; feedback: string } | null>(null);
 
   useEffect(() => {
     fetchDeckData();
@@ -37,15 +40,8 @@ const StudyFreeResponse = () => {
   const fetchDeckData = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("auth_token");
-      const response = await fetch(`http://localhost:8000/api/sessions/deck/${deckId}/flashcards`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) throw new Error("Failed to fetch deck");
-
-      const data = await response.json();
-      setDeck({ title: "Free Response Quiz" });
+      const data = await apiGet<{ flashcards: any[]; deck: any }>(`/flashcards/deck/${deckId}`);
+      setDeck(data.deck || { title: "Free Response Quiz" });
       setFlashcards(data.flashcards || []);
     } catch (err) {
       toast({
@@ -123,6 +119,7 @@ const StudyFreeResponse = () => {
       setCurrentIndex(currentIndex + 1);
       setUserAnswer("");
       setShowAnswer(false);
+      setEvaluationResult(null);
     }
   };
 
@@ -131,6 +128,7 @@ const StudyFreeResponse = () => {
       setCurrentIndex(currentIndex - 1);
       setUserAnswer("");
       setShowAnswer(false);
+      setEvaluationResult(null);
     }
   };
 
@@ -205,51 +203,84 @@ const StudyFreeResponse = () => {
                 <Button
                   className="w-full"
                   onClick={async () => {
-                    setShowAnswer(true);
+                    setIsEvaluating(true);
                     // Evaluate with backend
                     try {
-                      const token = localStorage.getItem("auth_token");
-                      const response = await fetch("http://localhost:8000/api/ai/evaluate-answer", {
-                        method: "POST",
-                        headers: {
-                          "Authorization": `Bearer ${token}`,
-                          "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify({
+                      const result = await apiPost<{ is_correct: boolean; similarity_score: number; feedback: string }>(
+                        "/ai/evaluate-answer",
+                        {
                           user_answer: userAnswer,
                           correct_answer: currentCard.answer,
                           question_type: "free_response",
-                        }),
-                      });
+                          question: currentCard.question,
+                        }
+                      );
 
-                      const result = await response.json();
-                      
+                      setEvaluationResult(result);
+                      setShowAnswer(true);
+
                       toast({
-                        title: result.is_correct ? "Great Answer! 🎉" : "Keep Practicing!",
+                        title: result.is_correct ? "Great Answer!" : "Keep Practicing!",
                         description: `Similarity: ${(result.similarity_score * 100).toFixed(0)}% - ${result.feedback}`,
                         variant: result.is_correct ? "default" : "destructive",
                       });
                     } catch (error) {
                       console.error("Error evaluating answer:", error);
+                      toast({
+                        title: "Error",
+                        description: "Failed to evaluate answer. Please try again.",
+                        variant: "destructive",
+                      });
+                    } finally {
+                      setIsEvaluating(false);
                     }
                   }}
-                  disabled={!userAnswer.trim()}
+                  disabled={!userAnswer.trim() || isEvaluating}
                 >
-                  Evaluate Answer
+                  {isEvaluating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Evaluating...
+                    </>
+                  ) : (
+                    "Evaluate Answer"
+                  )}
                 </Button>
               ) : (
-                <div className="space-y-4 p-4 bg-accent/50 rounded-lg border-2 border-primary/20 animate-fade-in">
-                  <div className="flex items-center gap-2 text-primary">
-                    <CheckCircle2 className="h-5 w-5" />
-                    <span className="font-semibold">Model Answer:</span>
+                <div className="space-y-4">
+                  {evaluationResult && (
+                    <div className={`p-4 rounded-lg border-2 animate-fade-in ${
+                      evaluationResult.is_correct
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-orange-50 border-orange-200'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-semibold text-lg">
+                          {evaluationResult.is_correct ? '✓ Correct!' : '○ Keep Practicing!'}
+                        </span>
+                        <Badge variant={evaluationResult.is_correct ? "default" : "secondary"} className="text-sm">
+                          Score: {(evaluationResult.similarity_score * 100).toFixed(0)}%
+                        </Badge>
+                      </div>
+                      <p className="text-sm mt-2">{evaluationResult.feedback}</p>
+                    </div>
+                  )}
+
+                  <div className="p-4 bg-accent/50 rounded-lg border-2 border-primary/20 animate-fade-in">
+                    <div className="flex items-center gap-2 text-primary mb-2">
+                      <CheckCircle2 className="h-5 w-5" />
+                      <span className="font-semibold">Model Answer:</span>
+                    </div>
+                    <p className="text-lg">{currentCard.answer}</p>
                   </div>
-                  <p className="text-lg">{currentCard.answer}</p>
+
                   <Button
                     variant="outline"
                     className="w-full"
                     onClick={() => {
                       setShowAnswer(false);
                       setUserAnswer("");
+                      setEvaluationResult(null);
                     }}
                   >
                     Try Again

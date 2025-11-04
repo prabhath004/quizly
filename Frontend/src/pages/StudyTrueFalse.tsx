@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, Loader2 } from "lucid
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { apiGet, apiPost } from "@/lib/api";
 
 interface Flashcard {
   id: string;
@@ -36,15 +37,8 @@ const StudyTrueFalse = () => {
   const fetchDeckData = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("auth_token");
-      const response = await fetch(`http://localhost:8000/api/sessions/deck/${deckId}/flashcards`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) throw new Error("Failed to fetch deck");
-
-      const data = await response.json();
-      setDeck({ title: "True/False Quiz" });
+      const data = await apiGet<{ flashcards: any[]; deck: any }>(`/flashcards/deck/${deckId}`);
+      setDeck(data.deck || { title: "True/False Quiz" });
       setFlashcards(data.flashcards || []);
     } catch (err) {
       toast({
@@ -65,27 +59,20 @@ const StudyTrueFalse = () => {
     
     // Evaluate answer with backend
     try {
-      const token = localStorage.getItem("auth_token");
-      const response = await fetch("http://localhost:8000/api/ai/evaluate-answer", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      const result = await apiPost<{ is_correct: boolean; similarity_score: number; feedback: string }>(
+        "/ai/evaluate-answer",
+        {
           user_answer: optionIndex.toString(),
           correct_answer: currentCard.answer,
           question_type: "true_false",
           correct_option_index: currentCard.correct_option_index,
-        }),
-      });
-
-      const result = await response.json();
+        }
+      );
       
       if (result.is_correct) {
         setScore(score + 1);
         toast({
-          title: "Correct! 🎉",
+          title: "Correct!",
           description: result.feedback,
         });
       } else {
@@ -202,8 +189,8 @@ const StudyTrueFalse = () => {
                 )}>
                   <p className="font-semibold mb-2">
                     {selectedOption === currentCard.correct_option_index
-                      ? "✅ Correct!"
-                      : "❌ Incorrect"}
+                      ? "Correct!"
+                      : "Incorrect"}
                   </p>
                   <p className="text-sm"><strong>Explanation:</strong> {currentCard.answer}</p>
                 </div>

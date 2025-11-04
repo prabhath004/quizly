@@ -1,8 +1,3 @@
-"""
-Quizly Backend - AI Integration Module
-Handles flashcard generation and embeddings-based answer checking
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from app.models import (
     FlashcardGenerationRequest,
@@ -227,11 +222,11 @@ async def get_or_create_embedding(text: str) -> List[float]:
     # Check if embedding exists in database
     existing = await db.get_embedding_by_hash(text_hash)
     if existing:
-        logger.info(f"✅ Found cached embedding for text hash: {text_hash[:8]}...")
+        logger.info(f"Found cached embedding for text hash: {text_hash[:8]}...")
         return existing['embedding']
     
     # Generate new embedding
-    logger.info(f"🔄 Generating new embedding for text hash: {text_hash[:8]}...")
+    logger.info(f"Generating new embedding for text hash: {text_hash[:8]}...")
     embedding = await get_embedding(text)
     
     # Store in database
@@ -243,7 +238,7 @@ async def get_or_create_embedding(text: str) -> List[float]:
     }
     
     await db.create_embedding(embedding_data)
-    logger.info(f"💾 Stored new embedding in database")
+    logger.info("Stored new embedding in database")
     
     return embedding
 
@@ -269,28 +264,146 @@ async def get_embedding(text: str) -> List[float]:
         )
 
 
-async def evaluate_answer_similarity(
+def preprocess_text(text: str) -> str:
+    """Preprocess text for better similarity comparison"""
+    import re
+
+    # Convert to lowercase
+    text = text.lower().strip()
+
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text)
+
+    # Remove common filler words that don't add semantic meaning
+    filler_words = ['um', 'uh', 'like', 'you know', 'basically', 'actually', 'literally']
+    for filler in filler_words:
+        text = re.sub(r'\b' + filler + r'\b', '', text, flags=re.IGNORECASE)
+
+    # Remove repeated words (e.g., "it is it is" -> "it is")
+    words = text.split()
+    cleaned_words = []
+    prev_word = None
+    for word in words:
+        if word != prev_word or word not in ['is', 'the', 'a', 'an', 'it', 'and', 'or']:
+            cleaned_words.append(word)
+        prev_word = word
+
+    text = ' '.join(cleaned_words)
+
+    # Clean up punctuation (keep it but normalize)
+    text = re.sub(r'[,;]+', ',', text)
+    text = re.sub(r'\.+', '.', text)
+
+    return text.strip()
+
+
+async def evaluate_with_gpt(
+    question: str,
     user_answer: str,
     correct_answer: str
-) -> tuple[bool, float]:
-    """Evaluate answer similarity using embeddings"""
+) -> tuple[bool, float, str]:
+    """Use GPT to semantically evaluate the answer quality"""
     try:
-        # Get embeddings for both answers (no caching - keep it simple)
-        user_embedding = await get_embedding(user_answer)
-        correct_embedding = await get_embedding(correct_answer)
-        
+        client = get_openai_client()
+
+        prompt = f"""You are an expert educator evaluating a student's answer to a question.
+
+Question: {question}
+
+Correct/Model Answer: {correct_answer}
+
+Student's Answer: {user_answer}
+
+Evaluate the student's answer and provide:
+1. A score from 0-100 representing how well they answered (100 = perfect, 0 = completely wrong)
+2. Whether the answer should be marked as correct (true/false) - be generous, if they demonstrate understanding mark as correct
+3. Specific feedback on what was good and what could be improved
+
+Consider:
+- Did they capture the key concepts?
+- Is the explanation accurate even if worded differently?
+- Award partial credit for partially correct answers
+- Ignore minor grammatical issues or filler words
+- Focus on semantic understanding, not exact wording
+
+Return ONLY valid JSON in this exact format:
+{{
+  "score": 85,
+  "is_correct": true,
+  "feedback": "Good answer! You correctly identified X and Y. However, you could improve by mentioning Z.",
+  "key_concepts_covered": ["concept1", "concept2"],
+  "key_concepts_missing": ["concept3"]
+}}"""
+
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an expert educator. Evaluate answers fairly and provide constructive feedback. Return only valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=300,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+
+        result = json.loads(response.choices[0].message.content)
+        score = result.get("score", 0) / 100.0  # Convert to 0-1 scale
+        is_correct = result.get("is_correct", score >= 0.65)
+        feedback = result.get("feedback", "Answer evaluated.")
+
+        logger.info(f"GPT Evaluation - Score: {score:.2f}, Correct: {is_correct}")
+
+        return is_correct, score, feedback
+
+    except Exception as e:
+        logger.error(f"GPT evaluation error: {e}")
+        # Fall back to embedding-based evaluation if GPT fails
+        return None, None, None
+
+
+async def evaluate_answer_similarity(
+    user_answer: str,
+    correct_answer: str,
+    question: str = None
+) -> tuple[bool, float]:
+    """Evaluate answer similarity using hybrid approach: GPT + embeddings"""
+    try:
+        # Preprocess both answers
+        user_answer_clean = preprocess_text(user_answer)
+        correct_answer_clean = preprocess_text(correct_answer)
+
+        logger.info(f"Original user answer: '{user_answer}'")
+        logger.info(f"Cleaned user answer: '{user_answer_clean}'")
+
+        # Try GPT-based evaluation first (more accurate)
+        if question:
+            gpt_is_correct, gpt_score, gpt_feedback = await evaluate_with_gpt(
+                question, user_answer_clean, correct_answer_clean
+            )
+
+            if gpt_score is not None:
+                logger.info(f"Using GPT evaluation: score={gpt_score:.2f}")
+                return gpt_is_correct, gpt_score
+
+        # Fallback to embedding-based similarity
+        logger.info("Using embedding-based evaluation")
+        user_embedding = await get_embedding(user_answer_clean)
+        correct_embedding = await get_embedding(correct_answer_clean)
+
         # Calculate cosine similarity
         similarity = cosine_similarity(
             [user_embedding],
             [correct_embedding]
         )[0][0]
-        
-        # Determine if answer is correct based on threshold
+
+        logger.info(f"Embedding similarity: {similarity:.2f}")
+
+        # Use lower threshold for preprocessed text
         settings = get_settings()
         is_correct = similarity >= settings.similarity_threshold
-        
-        return is_correct, similarity
-    
+
+        return is_correct, float(similarity)
+
     except Exception as e:
         logger.error(f"Answer evaluation error: {e}")
         raise HTTPException(
@@ -310,38 +423,62 @@ async def generate_flashcards(
     save_to_db: bool = Form(True),
     current_user = Depends(get_current_user)
 ):
-    """Generate flashcards and optionally save to database
-    
-    Question Types:
-    - mcq: Multiple Choice Questions with 4 options
-    - true_false: True/False questions
-    - free_response: Open-ended questions (users can speak their answer)
-    
-    Returns: Generated flashcards with deck_id if saved
-    """
     try:
         # Log received parameters with print for immediate visibility
-        print(f"📥 Received params: deck_title={deck_title}, num={num_flashcards}, difficulty={difficulty_level}, type={question_type}, save_to_db={save_to_db}")
-        print(f"📄 Has file: {file is not None and file.filename}, Has text: {text_content is not None and len(text_content or '') > 0}")
-        logger.info(f"📥 Received params: deck_title={deck_title}, num={num_flashcards}, difficulty={difficulty_level}, type={question_type}, save_to_db={save_to_db}")
-        logger.info(f"📄 Has file: {file is not None and file.filename}, Has text: {text_content is not None and len(text_content or '') > 0}")
+        print(f"Received params: deck_title={deck_title}, num={num_flashcards}, difficulty={difficulty_level}, type={question_type}, save_to_db={save_to_db}")
+        print(f"File object: {file}, File filename: {file.filename if file else None}")
+        print(f"Text content length: {len(text_content) if text_content else 0}")
+        logger.info(f"Received params: deck_title={deck_title}, num={num_flashcards}, difficulty={difficulty_level}, type={question_type}, save_to_db={save_to_db}")
+        logger.info(f"File object: {file}, File filename: {file.filename if file else None}")
+        logger.info(f"Text content length: {len(text_content) if text_content else 0}")
         
-        # Determine input source
-        if file and file.filename:
+        # Determine input source - check file first, then text
+        # Process file input first (if provided)
+        if file and hasattr(file, 'filename') and file.filename:
             # File input - extract text first
-            logger.info(f"📁 Processing file: {file.filename}")
-            from app.ingest import extract_text_with_openai
-            file_content = await file.read()
-            text_content = await extract_text_with_openai(file_content, file.filename)
-            logger.info(f"✅ Extracted {len(text_content)} characters from file")
-        elif text_content and len(text_content.strip()) > 0:
-            # Text input - use directly
-            logger.info(f"📝 Using text input: {len(text_content)} characters")
-        else:
-            logger.error("❌ No content provided")
+            try:
+                logger.info(f"Processing file: {file.filename}")
+                from app.ingest import extract_text_with_openai
+                file_content = await file.read()
+                if len(file_content) == 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Uploaded file is empty"
+                    )
+                text_content = await extract_text_with_openai(file_content, file.filename)
+                logger.info(f"Extracted {len(text_content)} characters from file")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error extracting text from file: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to process file: {str(e)}"
+                )
+        # Check text input (if file wasn't provided or file processing failed)
+        elif text_content:
+            # Normalize text_content - FastAPI Form(None) might return empty string
+            text_content = text_content.strip() if text_content and text_content.strip() else None
+            if text_content and len(text_content) > 0:
+                # Text input - use directly
+                logger.info(f"Using text input: {len(text_content)} characters")
+            else:
+                text_content = None
+        
+        # Final validation - ensure we have content
+        if not text_content:
+            logger.error("No content provided - neither file nor text content")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Either provide text content or upload a file"
+            )
+        
+        # Validate that we have text content after processing
+        if not text_content or len(text_content.strip()) < 100:
+            logger.error(f"Text content too short after processing: {len(text_content) if text_content else 0} characters")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Extracted content is too short. Please provide more content or upload a valid file."
             )
         
         # Create generation request
@@ -367,18 +504,18 @@ async def generate_flashcards(
                 }
                 
                 # Use service client to bypass RLS during creation
-                print(f"💾 Creating deck: {deck_title}")
-                logger.info(f"💾 Creating deck: {deck_title}")
+                print(f"Creating deck: {deck_title}")
+                logger.info(f"Creating deck: {deck_title}")
                 deck_insert_result = db.service_client.table("decks").insert(deck_data).execute()
                 deck = deck_insert_result.data[0] if deck_insert_result.data else None
                 
                 if not deck:
-                    print(f"❌ Failed to create deck in database")
-                    logger.error(f"❌ Failed to create deck in database")
+                    print("Failed to create deck in database")
+                    logger.error("Failed to create deck in database")
                     raise Exception("Deck creation failed")
                 
-                print(f"✅ Deck created with ID: {deck['id']}")
-                logger.info(f"✅ Deck created with ID: {deck['id']}")
+                print(f"Deck created with ID: {deck['id']}")
+                logger.info(f"Deck created with ID: {deck['id']}")
                 
                 if deck:
                     # Save all flashcards to database using service client
@@ -401,13 +538,13 @@ async def generate_flashcards(
                         flashcards_to_save.append(flashcard_dict)
                     
                     # Use service client for batch insert
-                    print(f"💾 Saving {len(flashcards_to_save)} flashcards to database...")
-                    logger.info(f"💾 Saving {len(flashcards_to_save)} flashcards to database...")
+                    print(f"Saving {len(flashcards_to_save)} flashcards to database...")
+                    logger.info(f"Saving {len(flashcards_to_save)} flashcards to database...")
                     saved_result = db.service_client.table("flashcards").insert(flashcards_to_save).execute()
                     saved_cards = saved_result.data if saved_result.data else []
                     
-                    print(f"✅ Saved {len(saved_cards)} flashcards to deck {deck['id']}")
-                    logger.info(f"✅ Saved {len(saved_cards)} flashcards to deck {deck['id']}")
+                    print(f"Saved {len(saved_cards)} flashcards to deck {deck['id']}")
+                    logger.info(f"Saved {len(saved_cards)} flashcards to deck {deck['id']}")
                     
                     return {
                         "deck_id": deck["id"],
@@ -432,7 +569,7 @@ async def generate_flashcards(
                         "saved_count": len(saved_cards)
                     }
             except Exception as e:
-                logger.error(f"❌ Error saving to database: {e}")
+                logger.error(f"Error saving to database: {e}")
                 # Return generated flashcards even if save fails
                 return {
                     "deck_id": None,
@@ -464,11 +601,6 @@ async def evaluate_answer(
     request: AnswerEvaluationRequest,
     current_user = Depends(get_current_user)
 ):
-    """Evaluate user answer against correct answer
-    
-    For MCQ: Checks if selected option matches correct_option_index
-    For Free Response: Uses AI embeddings to evaluate semantic similarity
-    """
     try:
         # Handle MCQ and True/False evaluation
         if request.question_type in [QuestionType.MCQ, QuestionType.TRUE_FALSE]:
@@ -477,45 +609,81 @@ async def evaluate_answer(
                 user_option_index = int(request.user_answer)
                 is_correct = user_option_index == request.correct_option_index
                 similarity_score = 1.0 if is_correct else 0.0
-                
+
                 if is_correct:
-                    feedback = "✅ Correct! Well done."
+                    feedback = "Correct! Well done."
                 else:
                     if request.question_type == QuestionType.TRUE_FALSE:
                         correct_ans = "True" if request.correct_option_index == 0 else "False"
-                        feedback = f"❌ Incorrect. The correct answer is: {correct_ans}"
+                        feedback = f"Incorrect. The correct answer is: {correct_ans}"
                     else:
-                        feedback = f"❌ Incorrect. The correct answer was option {request.correct_option_index}."
-                
+                        feedback = f"Incorrect. The correct answer was option {request.correct_option_index}."
+
             except ValueError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="For MCQ/True-False, user_answer must be the option index"
                 )
-        
-        # Handle Free Response evaluation
+
+        # Handle Free Response evaluation with improved GPT-based logic
         else:
-            is_correct, similarity_score = await evaluate_answer_similarity(
-                request.user_answer,
-                request.correct_answer
-            )
-            
-            # Generate feedback based on similarity
-            if is_correct:
-                feedback = "Great job! Your answer is correct."
-            elif similarity_score > 0.6:
-                feedback = "Close! Your answer is partially correct but could be more specific."
-            elif similarity_score > 0.3:
-                feedback = "Not quite right. Try to be more precise with your answer."
+            # Try GPT-based evaluation first if question is provided
+            if request.question:
+                user_answer_clean = preprocess_text(request.user_answer)
+                correct_answer_clean = preprocess_text(request.correct_answer)
+
+                gpt_is_correct, gpt_score, gpt_feedback = await evaluate_with_gpt(
+                    request.question,
+                    user_answer_clean,
+                    correct_answer_clean
+                )
+
+                if gpt_score is not None:
+                    # Use GPT evaluation results
+                    is_correct = gpt_is_correct
+                    similarity_score = gpt_score
+                    feedback = gpt_feedback
+                else:
+                    # GPT failed, fall back to embeddings
+                    is_correct, similarity_score = await evaluate_answer_similarity(
+                        request.user_answer,
+                        request.correct_answer,
+                        request.question
+                    )
+
+                    # Generate improved feedback based on similarity
+                    if is_correct:
+                        feedback = "Excellent! Your answer demonstrates strong understanding of the concept."
+                    elif similarity_score >= 0.55:
+                        feedback = "Good effort! You're on the right track. Your answer captures some key points but could be more complete."
+                    elif similarity_score >= 0.40:
+                        feedback = "Partially correct. You've identified some aspects but missed important details. Review the material and try again."
+                    else:
+                        feedback = "Not quite right. Your answer doesn't align with the expected response. Please review the concept and try again."
             else:
-                feedback = "Incorrect. Please review the material and try again."
-        
+                # No question provided, use basic embedding comparison
+                is_correct, similarity_score = await evaluate_answer_similarity(
+                    request.user_answer,
+                    request.correct_answer,
+                    None
+                )
+
+                # Generate feedback based on similarity
+                if is_correct:
+                    feedback = "Great job! Your answer is correct."
+                elif similarity_score >= 0.55:
+                    feedback = "Close! Your answer is partially correct. Consider adding more details."
+                elif similarity_score >= 0.40:
+                    feedback = "Your answer shows some understanding but needs improvement. Try to be more specific."
+                else:
+                    feedback = "Incorrect. Please review the material and try again."
+
         return AnswerEvaluationResponse(
             is_correct=is_correct,
             similarity_score=similarity_score,
             feedback=feedback
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:

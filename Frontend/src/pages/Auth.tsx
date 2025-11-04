@@ -24,7 +24,7 @@ const Auth = () => {
       const connected = await testBackendConnection();
       setBackendConnected(connected);
       if (!connected) {
-        setError("⚠️ Cannot connect to backend. Make sure the server is running on http://localhost:8000");
+        setError("Cannot connect to backend. Make sure the server is running on http://localhost:8000");
       }
     };
     checkConnection();
@@ -49,7 +49,7 @@ const Auth = () => {
       await authService.login(loginEmail, loginPassword);
       
       toast({
-        title: "Welcome back! 🎉",
+        title: "Welcome back!",
         description: "You've successfully logged in.",
       });
       
@@ -81,7 +81,7 @@ const Auth = () => {
       await authService.register(signupEmail, signupPassword, signupName);
       
       toast({
-        title: "Account created! 🎉",
+        title: "Account created!",
         description: "Welcome to Quizly. Start creating flashcards now.",
       });
       
@@ -97,15 +97,15 @@ const Auth = () => {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gradient-hero opacity-5 pointer-events-none" />
       
-      <Card className="w-full max-w-md relative animate-fade-in shadow-elegant">
-        <CardHeader className="text-center space-y-4">
+      <Card className="w-full max-w-md relative shadow-elegant">
+        <CardHeader className="text-center space-y-3 sm:space-y-4">
           <div className="flex justify-center">
-            <img src={quizlyLogo} alt="Quizly" className="h-16 w-16" />
+            <img src={quizlyLogo} alt="Quizly" className="h-12 w-12 sm:h-16 sm:w-16" />
           </div>
-          <CardTitle className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+          <CardTitle className="text-2xl sm:text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
             Welcome to Quizly
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-sm sm:text-base">
             Transform your study materials into powerful AI flashcards
           </CardDescription>
         </CardHeader>
@@ -147,7 +147,7 @@ const Auth = () => {
                   <Input
                     id="login-password"
                     type="password"
-                    placeholder="••••••••"
+                    placeholder="********"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     required
@@ -205,7 +205,7 @@ const Auth = () => {
                   <Input
                     id="signup-password"
                     type="password"
-                    placeholder="••••••••"
+                    placeholder="********"
                     value={signupPassword}
                     onChange={(e) => setSignupPassword(e.target.value)}
                     required
@@ -217,7 +217,7 @@ const Auth = () => {
                   <Input
                     id="signup-confirm-password"
                     type="password"
-                    placeholder="••••••••"
+                    placeholder="********"
                     value={signupConfirmPassword}
                     onChange={(e) => setSignupConfirmPassword(e.target.value)}
                     required
