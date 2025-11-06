@@ -3,7 +3,7 @@ import { apiGet, apiPost, testBackendConnection as testConnection } from './api'
 // Re-export testBackendConnection so it can be imported from auth
 export { testConnection as testBackendConnection };
 
-// Types matching your backend models
+
 interface User {
   id: string;
   email: string;

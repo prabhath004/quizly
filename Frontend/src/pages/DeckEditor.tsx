@@ -53,8 +53,27 @@ const DeckEditor = () => {
 
       // Fetch flashcards
       const flashcardsData = await apiGet<any>(`/flashcards/deck/${deckId}`);
-      setFlashcards(flashcardsData.length > 0 ? flashcardsData : [{ question: "", answer: "", difficulty: "medium", question_type: "free_response" }]);
-    } catch (err) {
+      console.log(flashcardsData);
+
+      if (flashcardsData && flashcardsData.flashcards && flashcardsData.flashcards.length > 0) {
+        // Map flashcards to ensure all fields are present
+        const mappedFlashcards = flashcardsData.flashcards.map((card: any) => ({
+          id: card.id,
+          question: card.question,
+          answer: card.answer,
+          difficulty: card.difficulty,
+          question_type: card.question_type,
+          mcq_options: card.options || undefined,
+          correct_option_index: card.correct_option_index !== undefined ? card.correct_option_index : undefined,
+        }));
+        setFlashcards(mappedFlashcards);
+      } else {
+      // If no flashcards, start with one empty card
+      setFlashcards([{ question: "", answer: "", difficulty: "medium", question_type: "free_response" }]);
+    } 
+  }
+  catch (err) {
+      console.error(err);
       toast({
         title: "Error",
         description: "Failed to load deck. Please try again.",
@@ -342,13 +361,25 @@ const DeckEditor = () => {
 
                 {flashcard.question_type === "mcq" && (
                   <div className="space-y-2">
-                    <Label>Multiple Choice Options</Label>
+                    <Label>
+                      Multiple Choice Options (select the correct answer)
+                      <span style={{ color: 'red' }}> *</span>
+                    </Label>
                     {(flashcard.mcq_options || [""]).map((option, optIdx) => (
                       <div key={optIdx} className="flex gap-2">
+                        <input
+                          type="radio"
+                          name={`correct-option-${index}`}
+                          checked={flashcard.correct_option_index === optIdx}
+                          onChange={() => updateFlashcard(index, "correct_option_index", optIdx)}
+                          className="w-4 h-4 text-primary cursor-pointer"
+                          title="Mark as correct answer"
+                        />
                         <Input
                           value={option}
                           onChange={(e) => updateMcqOption(index, optIdx, e.target.value)}
                           placeholder={`Option ${optIdx + 1}`}
+                          className="flex-1"
                         />
                         <Button
                           variant="ghost"
@@ -371,26 +402,22 @@ const DeckEditor = () => {
                         Add Option
                       </Button>
                     )}
-                    
-                    <div className="space-y-2 mt-2">
-                      <Label>Correct Answer Index</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max={(flashcard.mcq_options || []).length - 1}
-                        value={flashcard.correct_option_index || 0}
-                        onChange={(e) => updateFlashcard(index, "correct_option_index", parseInt(e.target.value))}
-                      />
-                    </div>
                   </div>
                 )}
 
                 <div className="space-y-2">
-                  <Label>Answer <span style={{ color: 'red' }}>*</span></Label>
+                  <Label>
+                    {flashcard.question_type === "mcq" ? "Explanation" : "Answer"} 
+                    <span style={{ color: 'red' }}>*</span>
+                  </Label>
                   <Textarea
                     value={flashcard.answer}
                     onChange={(e) => updateFlashcard(index, "answer", e.target.value)}
-                    placeholder="Enter the answer"
+                    placeholder={
+                      flashcard.question_type === "mcq"
+                        ? "Provide an explanation or additional context for the correct answer"
+                        : "Enter the answer"
+                    }
                     rows={3}
                   />
                 </div>
