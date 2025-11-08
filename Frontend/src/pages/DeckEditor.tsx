@@ -7,10 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Trash2, Save, ArrowLeft, Edit2 } from "lucide-react";
+import { Loader2, Plus, Trash2, Save, ArrowLeft, Edit2, Headphones } from "lucide-react";
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
 import { apiGet, apiPut, apiPost } from "@/lib/api";
+import { Progress } from "@/components/ui/progress";
 
 interface Flashcard {
   id?: string;
@@ -30,6 +31,9 @@ const DeckEditor = () => {
   const [isEditMode, setIsEditMode] = useState(!!deckId);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [generatingPodcast, setGeneratingPodcast] = useState(false);
+  const [podcastProgress, setPodcastProgress] = useState(0);
+  const [podcastAudioUrl, setPodcastAudioUrl] = useState<string | null>(null);
   
   const [deckTitle, setDeckTitle] = useState("");
   const [deckDescription, setDeckDescription] = useState("");
@@ -50,10 +54,24 @@ const DeckEditor = () => {
       const deck = await apiGet<any>(`/decks/${deckId}`);
       setDeckTitle(deck.title);
       setDeckDescription(deck.description || "");
+      setPodcastAudioUrl(deck.podcast_audio_url || null);
 
-      // Fetch flashcards
-      const flashcardsData = await apiGet<any>(`/flashcards/deck/${deckId}`);
-      setFlashcards(flashcardsData.length > 0 ? flashcardsData : [{ question: "", answer: "", difficulty: "medium", question_type: "free_response" }]);
+      // Fetch flashcards - the endpoint returns { flashcards: [...], deck: {...} }
+      const data = await apiGet<any>(`/flashcards/deck/${deckId}`);
+      const flashcardsData = data.flashcards || [];
+      
+      // Transform flashcards to match the expected format
+      const formattedFlashcards = flashcardsData.map((card: any) => ({
+        id: card.id,
+        question: card.question || "",
+        answer: card.answer || "",
+        difficulty: card.difficulty || "medium",
+        question_type: card.question_type || "free_response",
+        mcq_options: card.mcq_options || card.options,
+        correct_option_index: card.correct_option_index !== undefined ? card.correct_option_index : card.correctAnswer,
+      }));
+      
+      setFlashcards(formattedFlashcards.length > 0 ? formattedFlashcards : [{ question: "", answer: "", difficulty: "medium", question_type: "free_response" }]);
     } catch (err) {
       toast({
         title: "Error",
@@ -197,6 +215,66 @@ const DeckEditor = () => {
     }
   };
 
+  const handleGeneratePodcast = async () => {
+    if (!deckId) {
+      toast({
+        title: "Error",
+        description: "Please save the deck first before generating a podcast.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const validFlashcards = flashcards.filter(f => f.question.trim() && f.answer.trim());
+    if (validFlashcards.length === 0) {
+      toast({
+        title: "Error",
+        description: "Please add at least one flashcard before generating a podcast.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setGeneratingPodcast(true);
+    setPodcastProgress(0);
+    
+    // Simulate progress updates (since we can't get real-time progress from the API)
+    const progressInterval = setInterval(() => {
+      setPodcastProgress((prev) => {
+        if (prev >= 90) {
+          return 90; // Don't go to 100% until request completes
+        }
+        return prev + 5;
+      });
+    }, 500);
+
+    try {
+      const result = await apiPost<any>(`/decks/${deckId}/generate-podcast`, {});
+      clearInterval(progressInterval);
+      setPodcastProgress(100);
+      setPodcastAudioUrl(result.podcast_audio_url);
+      
+      setTimeout(() => {
+        setPodcastProgress(0);
+      }, 1000);
+      
+      toast({
+        title: "Success!",
+        description: "Podcast generated successfully! You can now play it from the decks page.",
+      });
+    } catch (err: any) {
+      clearInterval(progressInterval);
+      setPodcastProgress(0);
+      toast({
+        title: "Error",
+        description: err.message || "Failed to generate podcast. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingPodcast(false);
+    }
+  };
+
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty.toLowerCase()) {
       case "easy":
@@ -237,10 +315,51 @@ const DeckEditor = () => {
 
         <Card className="shadow-elegant mb-4 sm:mb-6">
           <CardHeader>
-            <CardTitle className="text-xl sm:text-2xl">{isEditMode ? "Edit Deck" : "Create New Deck"}</CardTitle>
-            <CardDescription className="text-sm sm:text-base">
-              {isEditMode ? "Update your deck and flashcards" : "Manually create a flashcard deck"}
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-xl sm:text-2xl">{isEditMode ? "Edit Deck" : "Create New Deck"}</CardTitle>
+                <CardDescription className="text-sm sm:text-base">
+                  {isEditMode ? "Update your deck and flashcards" : "Manually create a flashcard deck"}
+                </CardDescription>
+              </div>
+              {isEditMode && deckId && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    {podcastAudioUrl && (
+                      <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300">
+                        <Headphones className="mr-1 h-3 w-3" />
+                        Podcast Ready
+                      </Badge>
+                    )}
+                    <Button
+                      variant="outline"
+                      onClick={handleGeneratePodcast}
+                      disabled={generatingPodcast || flashcards.filter(f => f.question.trim() && f.answer.trim()).length === 0}
+                    >
+                      {generatingPodcast ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Headphones className="mr-2 h-4 w-4" />
+                          {podcastAudioUrl ? "Regenerate Podcast" : "Generate Podcast"}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  {generatingPodcast && (
+                    <div className="space-y-2">
+                      <Progress value={podcastProgress} className="h-2" />
+                      <p className="text-xs text-muted-foreground text-center">
+                        Generating podcast... {podcastProgress}%
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">

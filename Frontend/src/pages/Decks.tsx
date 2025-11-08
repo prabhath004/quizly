@@ -6,11 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { BookOpen, Play, Trash2, Loader2, Plus, Edit2, FolderPlus, Folder, FolderOpen, X, Move, MoreVertical } from "lucide-react";
+import { BookOpen, Play, Trash2, Loader2, Plus, Edit2, FolderPlus, Folder, FolderOpen, X, Move, MoreVertical, Headphones } from "lucide-react";
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import authService from "@/lib/auth";
+import { Progress } from "@/components/ui/progress";
+import PodcastPlayer from "@/components/PodcastPlayer";
 // Temporarily disabled drag-and-drop due to React hook error
 // import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, closestCenter } from "@dnd-kit/core";
 // import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
@@ -24,6 +26,7 @@ interface Deck {
   questionType: string;
   createdAt: string;
   folder_id?: string | null;
+  podcast_audio_url?: string | null;
 }
 
 interface Folder {
@@ -44,6 +47,11 @@ const Decks = () => {
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [creatingFolder, setCreatingFolder] = useState(false);
+  
+  // Global podcast player state
+  const [currentPodcast, setCurrentPodcast] = useState<{ url: string; title: string } | null>(null);
+  const [isPodcastPlayerOpen, setIsPodcastPlayerOpen] = useState(false);
+  
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -86,6 +94,7 @@ const Decks = () => {
                      deck.description?.includes("TRUE_FALSE") ? "true_false" : "free_response",
         createdAt: deck.created_at,
         folder_id: deck.folder_id,
+        podcast_audio_url: deck.podcast_audio_url || null,
       }));
       
       setDecks(transformedDecks);
@@ -242,7 +251,25 @@ const Decks = () => {
 
   const rootDecks = decks.filter(deck => !deck.folder_id);
 
+  // Global podcast player handlers
+  const handlePlayPodcast = (deck: Deck) => {
+    if (!deck.podcast_audio_url) return;
+    
+    // Stop any currently playing podcast
+    setCurrentPodcast({
+      url: deck.podcast_audio_url,
+      title: deck.title
+    });
+    setIsPodcastPlayerOpen(true);
+  };
+
+  const handleStopPodcast = () => {
+    setCurrentPodcast(null);
+    setIsPodcastPlayerOpen(false);
+  };
+
   const DeckCard = ({ deck, folders }: { deck: Deck; folders: Folder[] }) => {
+
     return (
       <div>
         <Card className="hover:shadow-elegant transition-shadow duration-200">
@@ -263,6 +290,12 @@ const Decks = () => {
               <Badge variant="outline">
                 {deck.questionType === "mcq" ? "Multiple Choice" : "Free Response"}
               </Badge>
+              {deck.podcast_audio_url && (
+                <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300">
+                  <Headphones className="mr-1 h-3 w-3" />
+                  Podcast
+                </Badge>
+              )}
             </div>
 
             <div className="flex gap-2">
@@ -273,6 +306,16 @@ const Decks = () => {
                 <Play className="mr-2 h-4 w-4" />
                 Study
               </Button>
+              {deck.podcast_audio_url && (
+                <Button
+                  variant={currentPodcast?.url === deck.podcast_audio_url ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => handlePlayPodcast(deck)}
+                  title="Play Podcast"
+                >
+                  <Headphones className="h-4 w-4" />
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="icon"
@@ -470,8 +513,18 @@ const Decks = () => {
           </div>
         )}
       </main>
+      
+      {/* Global Podcast Player */}
+      <PodcastPlayer
+        isOpen={isPodcastPlayerOpen}
+        onClose={() => setIsPodcastPlayerOpen(false)}
+        podcastUrl={currentPodcast?.url || null}
+        deckTitle={currentPodcast?.title || ""}
+        onStop={handleStopPodcast}
+      />
     </div>
   );
 };
 
 export default Decks;
+

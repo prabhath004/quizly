@@ -106,6 +106,7 @@ class Deck(DeckBase):
     created_at: datetime
     updated_at: datetime
     flashcard_count: int = 0
+    podcast_audio_url: Optional[str] = None
     
     class Config:
         from_attributes = True
