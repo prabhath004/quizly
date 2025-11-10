@@ -316,8 +316,22 @@ Student's Answer: {user_answer}
 
 Evaluate the student's answer and provide:
 1. A score from 0-100 representing how well they answered (100 = perfect, 0 = completely wrong)
-2. Whether the answer should be marked as correct (true/false) - be generous, if they demonstrate understanding mark as correct
+2. Whether the answer should be marked as correct (true/false)
 3. Specific feedback on what was good and what could be improved
+
+STRICTER GRADING CRITERIA
+- If the student says "I don't know", "I'm not sure", "unsure", or similar non-attempts, score 0
+- If the answer is incomplete (e.g., ends with "by", "using", "through" without finishing), score 0-20
+- If the answer is too brief (less than 10 words for a complex question), score maximum 40
+- The student MUST mention the key concepts from the correct answer to pass
+- Award 60+ only if the answer demonstrates clear understanding
+- Award 80+ only if the answer is comprehensive and accurate
+- Be strict but fair - partial credit for partial understanding
+
+Special cases:
+- "I don't know" / "I'm not sure" / "unsure" / blank = 0 score
+- Incomplete sentences = 0-20 score
+- Off-topic answers = 0 score
 
 Consider:
 - Did they capture the key concepts?
