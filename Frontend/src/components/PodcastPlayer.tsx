@@ -3,16 +3,20 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Play, Pause, Headphones, Volume2 } from "lucide-react";
+import { apiGet } from "@/lib/api";
 
 interface PodcastPlayerProps {
   isOpen: boolean;
   onClose: () => void;
   podcastUrl: string | null;
   deckTitle: string;
+  deckId: string | null;
+  folderId: string | null;
   onStop: () => void;
+  onNextPodcast: (nextPodcast: { url: string; title: string; deckId: string; folderId: string | null }) => void;
 }
 
-const PodcastPlayer = ({ isOpen, onClose, podcastUrl, deckTitle, onStop }: PodcastPlayerProps) => {
+const PodcastPlayer = ({ isOpen, onClose, podcastUrl, deckTitle, deckId, folderId, onStop, onNextPodcast }: PodcastPlayerProps) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -43,14 +47,38 @@ const PodcastPlayer = ({ isOpen, onClose, podcastUrl, deckTitle, onStop }: Podca
       setDuration(audio.duration);
     };
 
+    const handleEnded = async () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+      
+      // Autoplay next podcast in folder if available
+      if (deckId && folderId) {
+        try {
+          const response = await apiGet<{ next_deck: any }>(`/decks/${deckId}/next-podcast`);
+          if (response.next_deck && response.next_deck.podcast_audio_url) {
+            // Auto-play next podcast
+            onNextPodcast({
+              url: response.next_deck.podcast_audio_url,
+              title: response.next_deck.title,
+              deckId: response.next_deck.id,
+              folderId: response.next_deck.folder_id,
+            });
+            return; // Don't call onStop, we're continuing to next podcast
+          }
+        } catch (error) {
+          console.error("Failed to get next podcast:", error);
+          // Fall through to onStop
+        }
+      }
+      
+      // No next podcast or error - stop playback
+      onStop();
+    };
+
     audio.addEventListener('timeupdate', updateTime);
     audio.addEventListener('loadedmetadata', updateDuration);
     audio.addEventListener('durationchange', updateDuration);
-    audio.addEventListener('ended', () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
-      onStop();
-    });
+    audio.addEventListener('ended', handleEnded);
 
     // Auto-play when player opens
     if (isOpen) {
@@ -66,10 +94,11 @@ const PodcastPlayer = ({ isOpen, onClose, podcastUrl, deckTitle, onStop }: Podca
       audio.removeEventListener('timeupdate', updateTime);
       audio.removeEventListener('loadedmetadata', updateDuration);
       audio.removeEventListener('durationchange', updateDuration);
+      audio.removeEventListener('ended', handleEnded);
       audio.pause();
       audio.src = '';
     };
-  }, [podcastUrl, isOpen, onStop]);
+  }, [podcastUrl, isOpen, onStop, deckId, folderId, onNextPodcast]);
 
   useEffect(() => {
     if (audioRef.current) {

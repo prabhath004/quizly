@@ -167,9 +167,22 @@ async def delete_folder(folder_id: str, current_user = Depends(get_current_user)
                 detail="Access denied"
             )
         
-        # Move all decks in this folder to root (set folder_id to null)
+        # Move all decks in this folder to root (set folder_id to null and clear order_index)
         print("Moving decks to root...")
-        db.service_client.table("decks").update({"folder_id": None}).eq("folder_id", folder_id).execute()
+        try:
+            # Try to update both folder_id and order_index
+            db.service_client.table("decks").update({
+                "folder_id": None,
+                "order_index": None
+            }).eq("folder_id", folder_id).execute()
+        except Exception as e:
+            # If order_index column doesn't exist, just update folder_id
+            error_str = str(e)
+            if "order_index" in error_str or "42703" in error_str:
+                logger.warning("order_index column not found - moving decks without clearing order_index")
+                db.service_client.table("decks").update({"folder_id": None}).eq("folder_id", folder_id).execute()
+            else:
+                raise
         
         # Delete folder using service client
         print("Deleting folder...")

@@ -7,10 +7,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Trash2, Save, ArrowLeft, Edit2, Headphones } from "lucide-react";
+import { Loader2, Plus, Trash2, Save, ArrowLeft, Edit2, Headphones, Mic, StopCircle, Play, X } from "lucide-react";
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
-import { apiGet, apiPut, apiPost } from "@/lib/api";
+import { apiGet, apiPut, apiPost, apiUpload } from "@/lib/api";
 import { Progress } from "@/components/ui/progress";
 
 interface Flashcard {
@@ -21,6 +21,7 @@ interface Flashcard {
   question_type: string;
   mcq_options?: string[];
   correct_option_index?: number;
+  audio_url?: string | null;
 }
 
 const DeckEditor = () => {
@@ -40,6 +41,16 @@ const DeckEditor = () => {
   const [flashcards, setFlashcards] = useState<Flashcard[]>([
     { question: "", answer: "", difficulty: "medium", question_type: "free_response" }
   ]);
+  
+  // Recording state per flashcard
+  const [recordingStates, setRecordingStates] = useState<Record<number, {
+    isRecording: boolean;
+    mediaRecorder: MediaRecorder | null;
+    audioChunks: Blob[];
+    audioUrl: string | null;
+    isPlaying: boolean;
+    audioElement: HTMLAudioElement | null;
+  }>>({});
 
   useEffect(() => {
     if (deckId) {
@@ -69,6 +80,7 @@ const DeckEditor = () => {
         question_type: card.question_type || "free_response",
         mcq_options: card.mcq_options || card.options,
         correct_option_index: card.correct_option_index !== undefined ? card.correct_option_index : card.correctAnswer,
+        audio_url: card.audio_url || null,
       }));
       
       setFlashcards(formattedFlashcards.length > 0 ? formattedFlashcards : [{ question: "", answer: "", difficulty: "medium", question_type: "free_response" }]);
@@ -88,7 +100,207 @@ const DeckEditor = () => {
   };
 
   const removeFlashcard = (index: number) => {
+    // Stop any ongoing recording for this flashcard
+    const state = recordingStates[index];
+    if (state?.isRecording && state.mediaRecorder) {
+      state.mediaRecorder.stop();
+    }
+    if (state?.audioElement) {
+      state.audioElement.pause();
+      state.audioElement = null;
+    }
+    // Clean up recording state
+    const newStates = { ...recordingStates };
+    delete newStates[index];
+    setRecordingStates(newStates);
+    
     setFlashcards(flashcards.filter((_, i) => i !== index));
+  };
+  
+  // Recording functions
+  const startRecording = async (index: number) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 
+                       MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 
+                       'audio/webm';
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      const audioChunks: Blob[] = [];
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
+      };
+      
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(track => track.stop());
+        const audioBlob = new Blob(audioChunks, { type: mimeType });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        setRecordingStates(prev => ({
+          ...prev,
+          [index]: {
+            isRecording: false,
+            mediaRecorder: null,
+            audioChunks: [],
+            audioUrl,
+            isPlaying: false,
+            audioElement: null,
+          }
+        }));
+      };
+      
+      mediaRecorder.start(100); // Collect data every 100ms
+      
+      setRecordingStates(prev => ({
+        ...prev,
+        [index]: {
+          isRecording: true,
+          mediaRecorder,
+          audioChunks: [],
+          audioUrl: null,
+          isPlaying: false,
+          audioElement: null,
+        }
+      }));
+    } catch (error) {
+      console.error("Error starting recording:", error);
+      toast({
+        title: "Error",
+        description: "Failed to start recording. Please check microphone permissions.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  const stopRecording = (index: number) => {
+    const state = recordingStates[index];
+    if (state?.mediaRecorder && state.isRecording) {
+      state.mediaRecorder.stop();
+    }
+  };
+  
+  const uploadRecording = async (index: number, flashcardId: string) => {
+    const state = recordingStates[index];
+    if (!state?.audioUrl || !flashcardId) {
+      toast({
+        title: "Error",
+        description: "No recording to upload. Please record audio first.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      // Convert blob URL to blob
+      const response = await fetch(state.audioUrl);
+      const blob = await response.blob();
+      
+      // Create form data
+      const formData = new FormData();
+      const fileName = `recording-${flashcardId}.webm`;
+      formData.append('audio_file', blob, fileName);
+      
+      // Upload using apiUpload (which handles FormData)
+      const result = await apiUpload<any>(`/flashcards/${flashcardId}/upload-audio`, formData);
+      
+      // Update flashcard with audio URL
+      const updated = [...flashcards];
+      updated[index] = { ...updated[index], audio_url: result.audio_url };
+      setFlashcards(updated);
+      
+      // Clean up recording state
+      URL.revokeObjectURL(state.audioUrl);
+      setRecordingStates(prev => {
+        const newState = { ...prev };
+        delete newState[index];
+        return newState;
+      });
+      
+      toast({
+        title: "Success",
+        description: "Voice memo uploaded successfully!",
+      });
+    } catch (error: any) {
+      console.error("Error uploading recording:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to upload recording. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  const deleteRecording = async (index: number, flashcardId: string) => {
+    if (!flashcardId) return;
+    
+    try {
+      await apiPut(`/flashcards/${flashcardId}`, { audio_url: "" });
+      
+      const updated = [...flashcards];
+      updated[index] = { ...updated[index], audio_url: null };
+      setFlashcards(updated);
+      
+      toast({
+        title: "Success",
+        description: "Voice memo deleted successfully!",
+      });
+    } catch (error: any) {
+      console.error("Error deleting recording:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete recording. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  const playRecording = (audioUrl: string, index: number) => {
+    const state = recordingStates[index];
+    if (state?.audioElement) {
+      state.audioElement.pause();
+      state.audioElement = null;
+    }
+    
+    const audio = new Audio(audioUrl);
+    audio.play();
+    
+    audio.onended = () => {
+      setRecordingStates(prev => ({
+        ...prev,
+        [index]: {
+          ...prev[index],
+          isPlaying: false,
+          audioElement: null,
+        }
+      }));
+    };
+    
+    setRecordingStates(prev => ({
+      ...prev,
+      [index]: {
+        ...prev[index],
+        isPlaying: true,
+        audioElement: audio,
+      }
+    }));
+  };
+  
+  const stopPlayback = (index: number) => {
+    const state = recordingStates[index];
+    if (state?.audioElement) {
+      state.audioElement.pause();
+      state.audioElement.currentTime = 0;
+      setRecordingStates(prev => ({
+        ...prev,
+        [index]: {
+          ...prev[index],
+          isPlaying: false,
+          audioElement: null,
+        }
+      }));
+    }
   };
 
   const updateFlashcard = (index: number, field: string, value: any) => {
@@ -175,7 +387,8 @@ const DeckEditor = () => {
       }
 
       // Save/update flashcards
-      for (const flashcard of validFlashcards) {
+      for (let i = 0; i < validFlashcards.length; i++) {
+        const flashcard = validFlashcards[i];
         const flashcardData: any = {
           deck_id: currentDeckId,
           question: flashcard.question,
@@ -189,12 +402,47 @@ const DeckEditor = () => {
           flashcardData.correct_option_index = flashcard.correct_option_index || 0;
         }
 
+        let savedFlashcard;
         if (flashcard.id) {
           // Update existing
-          await apiPut(`/flashcards/${flashcard.id}`, flashcardData);
+          savedFlashcard = await apiPut(`/flashcards/${flashcard.id}`, flashcardData);
         } else {
           // Create new
-          await apiPost("/flashcards", flashcardData);
+          savedFlashcard = await apiPost("/flashcards", flashcardData);
+        }
+        
+        // If there's a recording that hasn't been uploaded yet, upload it now
+        // Find the recording state by matching the flashcard
+        const flashcardIndex = flashcards.findIndex(f => 
+          flashcard.id ? f.id === flashcard.id : 
+          flashcard === f
+        );
+        const recordingState = recordingStates[flashcardIndex];
+        if (recordingState?.audioUrl && savedFlashcard.id) {
+          try {
+            const response = await fetch(recordingState.audioUrl);
+            const blob = await response.blob();
+            const formData = new FormData();
+            const fileName = `recording-${savedFlashcard.id}.webm`;
+            formData.append('audio_file', blob, fileName);
+            const uploadResult = await apiUpload<any>(`/flashcards/${savedFlashcard.id}/upload-audio`, formData);
+            
+            // Update the flashcard in state with the audio URL
+            const updated = [...flashcards];
+            if (flashcardIndex >= 0) {
+              updated[flashcardIndex] = { ...updated[flashcardIndex], audio_url: uploadResult.audio_url };
+            }
+            setFlashcards(updated);
+            
+            // Clean up recording state
+            URL.revokeObjectURL(recordingState.audioUrl);
+            const newStates = { ...recordingStates };
+            delete newStates[flashcardIndex];
+            setRecordingStates(newStates);
+          } catch (error) {
+            console.error("Error uploading recording during save:", error);
+            // Don't fail the entire save if recording upload fails
+          }
         }
       }
 
@@ -512,6 +760,142 @@ const DeckEditor = () => {
                     placeholder="Enter the answer"
                     rows={3}
                   />
+                </div>
+
+                {/* Voice Mnemonic Recording Section */}
+                <div className="space-y-2 border-t pt-4">
+                  <Label>Voice Mnemonic (Optional)</Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Record yourself explaining this flashcard to help with retention
+                  </p>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {!flashcard.audio_url && !recordingStates[index]?.audioUrl && (
+                      <>
+                        {!recordingStates[index]?.isRecording ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => startRecording(index)}
+                          >
+                            <Mic className="mr-2 h-4 w-4" />
+                            Record Voice Memo
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => stopRecording(index)}
+                          >
+                            <StopCircle className="mr-2 h-4 w-4" />
+                            Stop Recording
+                          </Button>
+                        )}
+                      </>
+                    )}
+                    
+                    {recordingStates[index]?.audioUrl && !flashcard.audio_url && (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const state = recordingStates[index];
+                            if (state?.audioUrl) {
+                              playRecording(state.audioUrl, index);
+                            }
+                          }}
+                        >
+                          <Play className="mr-2 h-4 w-4" />
+                          Play
+                        </Button>
+                        {recordingStates[index]?.isPlaying && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => stopPlayback(index)}
+                          >
+                            Stop
+                          </Button>
+                        )}
+                        {flashcard.id && (
+                          <Button
+                            type="button"
+                            variant="default"
+                            size="sm"
+                            onClick={() => uploadRecording(index, flashcard.id!)}
+                          >
+                            Save Recording
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const state = recordingStates[index];
+                            if (state?.audioUrl) {
+                              URL.revokeObjectURL(state.audioUrl);
+                            }
+                            setRecordingStates(prev => {
+                              const newState = { ...prev };
+                              delete newState[index];
+                              return newState;
+                            });
+                          }}
+                        >
+                          <X className="mr-2 h-4 w-4" />
+                          Discard
+                        </Button>
+                      </>
+                    )}
+                    
+                    {flashcard.audio_url && (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => playRecording(flashcard.audio_url!, index)}
+                        >
+                          <Play className="mr-2 h-4 w-4" />
+                          Play Recording
+                        </Button>
+                        {recordingStates[index]?.isPlaying && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => stopPlayback(index)}
+                          >
+                            Stop
+                          </Button>
+                        )}
+                        {flashcard.id && (
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => deleteRecording(index, flashcard.id!)}
+                          >
+                            <X className="mr-2 h-4 w-4" />
+                            Delete Recording
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  
+                  {recordingStates[index]?.isRecording && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse"></div>
+                      Recording...
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

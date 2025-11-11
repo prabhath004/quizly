@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.models import Deck, DeckCreate, DeckUpdate
+from app.models import Deck, DeckCreate, DeckUpdate, DeckReorderRequest
 from app.auth import get_current_user
 from app.database import db
 from app.config import get_settings
@@ -11,6 +11,7 @@ import io
 import time
 import tempfile
 import os
+import random
 from pydub import AudioSegment
 import requests
 
@@ -42,6 +43,18 @@ async def create_deck(deck_data: DeckCreate, current_user = Depends(get_current_
         # Add folder_id if provided
         if deck_data.folder_id:
             deck_dict["folder_id"] = deck_data.folder_id
+            # Set order_index to the last position in the folder (only if column exists)
+            try:
+                folder_decks_result = db.service_client.table("decks").select("order_index").eq("folder_id", deck_data.folder_id).eq("user_id", current_user.id).execute()
+                folder_decks = folder_decks_result.data if folder_decks_result.data else []
+                max_order = max([d.get("order_index") or -1 for d in folder_decks], default=-1)
+                deck_dict["order_index"] = max_order + 1
+            except Exception as e:
+                error_str = str(e)
+                if "order_index" in error_str or "42703" in error_str:
+                    logger.warning("order_index column not found - creating deck without order_index. Please run migration.")
+                # Continue without order_index - deck creation should still work
+        # Note: We don't set order_index for root decks - it's not needed
         
         result = db.service_client.table("decks").insert(deck_dict).execute()
         
@@ -70,7 +83,7 @@ async def create_deck(deck_data: DeckCreate, current_user = Depends(get_current_
 
 @decks_router.get("/my-decks", tags=["Decks"])
 async def get_my_decks(current_user = Depends(get_current_user)):
-    """Get all decks for current user"""
+    """Get all decks for current user, ordered by order_index within folders"""
     try:
         print(f"Fetching decks for user: {current_user.id}")
         
@@ -80,12 +93,80 @@ async def get_my_decks(current_user = Depends(get_current_user)):
         
         print(f"Found {len(decks)} decks")
         
-        # Add flashcard count to each deck
+        # Add flashcard count to each deck and ensure order_index is set
         for deck in decks:
             flashcards_result = db.service_client.table("flashcards").select("*").eq("deck_id", deck["id"]).execute()
             flashcards = flashcards_result.data if flashcards_result.data else []
             deck["flashcard_count"] = len(flashcards)
+            
+            # If deck is in a folder but has no order_index, assign one
+            # Only do this if the column exists (graceful degradation)
+            if deck.get("folder_id"):
+                try:
+                    # Try to check and set order_index
+                    if deck.get("order_index") is None:
+                        # Get max order_index in this folder and set to next
+                        folder_decks_result = db.service_client.table("decks").select("order_index").eq("folder_id", deck["folder_id"]).eq("user_id", current_user.id).execute()
+                        folder_decks = folder_decks_result.data if folder_decks_result.data else []
+                        max_order = max([d.get("order_index") or -1 for d in folder_decks], default=-1)
+                        new_order = max_order + 1
+                        db.service_client.table("decks").update({"order_index": new_order}).eq("id", deck["id"]).execute()
+                        deck["order_index"] = new_order
+                        print(f"  Assigned order_index {new_order} to deck '{deck['title']}' in folder")
+                except Exception as e:
+                    # Column might not exist - that's okay, continue without it
+                    if "order_index" in str(e) or "42703" in str(e):
+                        logger.warning(f"order_index column not found - please run migration: {e}")
+                    # Continue processing other decks
+            
             print(f"  Deck '{deck['title']}': {len(flashcards)} flashcards")
+        
+        # Sort decks: folders first (by order_index), then root decks (by created_at)
+        def sort_key(deck):
+            try:
+                if deck.get("folder_id"):
+                    # Decks in folders: sort by folder_id first, then order_index
+                    folder_id = str(deck.get("folder_id") or "")
+                    order_index = deck.get("order_index")
+                    # Handle None order_index - use a large number so they sort last
+                    if order_index is None:
+                        order_index = 999999
+                    # Ensure order_index is an integer
+                    try:
+                        order_index = int(order_index)
+                    except (ValueError, TypeError):
+                        order_index = 999999
+                    return (0, folder_id, order_index)  # 0 means it's in a folder
+                else:
+                    # Root decks: sort by created_at (newest first, None last)
+                    created_at = deck.get("created_at")
+                    # Convert None to empty string, ensure it's a string
+                    if created_at is None:
+                        created_at = ""
+                    created_at = str(created_at)
+                    # For descending order (newest first), we'll reverse the sort after
+                    # For now, use empty string for None so they sort last
+                    return (1, created_at)  # 1 means it's a root deck
+            except Exception as e:
+                # Fallback: if anything goes wrong, put problematic decks at the end
+                logger.warning(f"Error sorting deck {deck.get('id')}: {e}")
+                return (2, "")
+        
+        # Sort: folders first (0), then root decks (1), then errors (2)
+        # Within folders: by folder_id, then order_index
+        # Root decks: by created_at (will reverse for newest first)
+        decks.sort(key=sort_key)
+        
+        # For root decks, we want newest first, so we need to reverse their section
+        # Separate folders and root decks
+        folder_decks = [d for d in decks if d.get("folder_id")]
+        root_decks = [d for d in decks if not d.get("folder_id")]
+        
+        # Sort root decks by created_at in descending order (newest first)
+        root_decks.sort(key=lambda d: d.get("created_at") or "", reverse=True)
+        
+        # Combine: folders first, then root decks
+        decks[:] = folder_decks + root_decks
         
         return decks
     
@@ -173,6 +254,9 @@ async def update_deck(deck_id: str, deck_update: DeckUpdate, current_user = Depe
         # Handle folder_id - check if it was explicitly provided in the request
         # Use model_dump with exclude_unset to check if folder_id was actually sent
         update_dict = deck_update.model_dump(exclude_unset=True)
+        current_deck = deck_result.data[0]
+        old_folder_id = current_deck.get("folder_id")
+        
         if "folder_id" in update_dict:
             folder_id_value = update_dict["folder_id"]
             # If folder_id is being set to a folder (not None), validate it belongs to the user
@@ -188,17 +272,105 @@ async def update_deck(deck_id: str, deck_update: DeckUpdate, current_user = Depe
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Access denied to folder"
                     )
-            # Allow setting to None (move to root) - explicitly set None in update_data
-            # Supabase will handle None values correctly
-            update_data["folder_id"] = folder_id_value
+                
+                # If moving to a different folder (or from root to folder), assign order_index (last position)
+                # Only try to set order_index if the column exists (catch error gracefully)
+                if old_folder_id != folder_id_value:
+                    try:
+                        # Get all decks in the target folder, EXCLUDING the current deck being moved
+                        # This handles the case where we're moving within the same folder or from another folder
+                        folder_decks_result = db.service_client.table("decks").select("id,order_index").eq("folder_id", folder_id_value).eq("user_id", current_user.id).execute()
+                        folder_decks = folder_decks_result.data if folder_decks_result.data else []
+                        # Exclude the current deck from the calculation (in case it's already in this folder)
+                        folder_decks = [d for d in folder_decks if d.get("id") != deck_id]
+                        max_order = max([d.get("order_index") or -1 for d in folder_decks], default=-1)
+                        update_data["order_index"] = max_order + 1
+                        logger.info(f"Moving deck {deck_id} to folder {folder_id_value}, assigning order_index {max_order + 1}")
+                    except Exception as e:
+                        # Column might not exist yet - log warning but continue without it
+                        error_str = str(e)
+                        if "order_index" in error_str or "42703" in error_str:
+                            logger.warning("order_index column not found - please run migration. Continuing without order_index.")
+                        # Don't fail the operation, just skip order_index
+                
+                update_data["folder_id"] = folder_id_value
+            else:
+                # Moving to root - clear folder_id and order_index
+                update_data["folder_id"] = None
+                # Try to clear order_index, but don't fail if column doesn't exist
+                # We'll let the update attempt handle the error gracefully
+                # Only set order_index to None if we're actually moving (not just updating other fields)
+                if old_folder_id is not None:
+                    # Only try to clear order_index if deck was actually in a folder
+                    update_data["order_index"] = None
+        
+        # Handle order_index update if explicitly provided
+        if "order_index" in update_dict and current_deck.get("folder_id"):
+            # Only allow order_index updates for decks in folders
+            update_data["order_index"] = update_dict["order_index"]
         
         if not update_data:
             # No changes to apply
             deck_result = db.service_client.table("decks").select("*").eq("id", deck_id).execute()
             return deck_result.data[0]
         
-        # Update deck
-        result = db.service_client.table("decks").update(update_data).eq("id", deck_id).execute()
+        # Update deck - handle case where order_index column doesn't exist
+        try:
+            result = db.service_client.table("decks").update(update_data).eq("id", deck_id).execute()
+        except Exception as update_error:
+            error_str = str(update_error)
+            error_dict = {}
+            # Try to extract error details
+            try:
+                if hasattr(update_error, '__dict__'):
+                    error_dict = update_error.__dict__
+                elif isinstance(update_error, dict):
+                    error_dict = update_error
+                # Check for message attribute
+                if hasattr(update_error, 'message'):
+                    error_str = str(update_error.message) + " " + error_str
+            except:
+                pass
+            
+            # Check if error is about order_index column not existing
+            is_order_index_error = (
+                "order_index" in error_str or 
+                "42703" in error_str or
+                str(error_dict.get("code")) == "42703" or
+                ("column" in error_str.lower() and "order_index" in error_str.lower())
+            )
+            
+            if is_order_index_error:
+                logger.warning("order_index column not found - retrying update without order_index. Please run migration.")
+                # Remove order_index from update_data and retry
+                update_data_retry = {k: v for k, v in update_data.items() if k != "order_index"}
+                if update_data_retry:
+                    try:
+                        result = db.service_client.table("decks").update(update_data_retry).eq("id", deck_id).execute()
+                        logger.info(f"Successfully updated deck {deck_id} without order_index")
+                    except Exception as retry_error:
+                        logger.error(f"Failed to update deck even without order_index: {retry_error}")
+                        raise HTTPException(
+                            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"Failed to update deck: {str(retry_error)}"
+                        )
+                else:
+                    # No other updates to make, just return current deck
+                    logger.info("No updates to apply after removing order_index")
+                    deck_result = db.service_client.table("decks").select("*").eq("id", deck_id).execute()
+                    updated_deck = deck_result.data[0] if deck_result.data else None
+                    if updated_deck:
+                        flashcards_result = db.service_client.table("flashcards").select("*").eq("deck_id", deck_id).execute()
+                        flashcards = flashcards_result.data if flashcards_result.data else []
+                        updated_deck["flashcard_count"] = len(flashcards)
+                    return updated_deck
+            else:
+                # Some other error - provide better error message
+                logger.error(f"Error updating deck {deck_id}: {update_error}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to update deck: {str(update_error)}"
+                )
         updated_deck = result.data[0] if result.data else None
         
         if not updated_deck:
@@ -223,6 +395,132 @@ async def update_deck(deck_id: str, deck_update: DeckUpdate, current_user = Depe
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update deck"
+        )
+
+
+@decks_router.get("/{deck_id}/next-podcast", tags=["Decks"])
+async def get_next_podcast_in_folder(deck_id: str, current_user = Depends(get_current_user)):
+    """Get the next deck with a podcast in the same folder"""
+    try:
+        # Get current deck
+        deck_result = db.service_client.table("decks").select("*").eq("id", deck_id).execute()
+        if not deck_result.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Deck not found"
+            )
+        
+        current_deck = deck_result.data[0]
+        if current_deck["user_id"] != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        folder_id = current_deck.get("folder_id")
+        if not folder_id:
+            # Deck is in root, no autoplay
+            return {"next_deck": None}
+        
+        current_order = current_deck.get("order_index") or 0
+        
+        # Get next deck in folder with podcast, ordered by order_index
+        all_decks_result = db.service_client.table("decks").select("*").eq("folder_id", folder_id).eq("user_id", current_user.id).execute()
+        folder_decks = all_decks_result.data if all_decks_result.data else []
+        
+        # Filter decks with podcasts and order_index > current_order
+        next_decks = [
+            deck for deck in folder_decks
+            if deck.get("podcast_audio_url") and (deck.get("order_index") or 0) > current_order
+        ]
+        
+        if not next_decks:
+            return {"next_deck": None}
+        
+        # Get the one with the smallest order_index (next in sequence)
+        next_deck = min(next_decks, key=lambda d: d.get("order_index") or 0)
+        
+        # Add flashcard count
+        flashcards_result = db.service_client.table("flashcards").select("*").eq("deck_id", next_deck["id"]).execute()
+        flashcards = flashcards_result.data if flashcards_result.data else []
+        next_deck["flashcard_count"] = len(flashcards)
+        
+        return {"next_deck": next_deck}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get next podcast error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get next podcast"
+        )
+
+
+@decks_router.post("/folder/{folder_id}/reorder", tags=["Decks"])
+async def reorder_decks_in_folder(
+    folder_id: str,
+    reorder_request: DeckReorderRequest,
+    current_user = Depends(get_current_user)
+):
+    """Reorder decks in a folder"""
+    try:
+        # Verify folder belongs to user
+        folder_result = db.service_client.table("folders").select("*").eq("id", folder_id).execute()
+        if not folder_result.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Folder not found"
+            )
+        
+        if folder_result.data[0]["user_id"] != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Verify all decks belong to the user and are in this folder
+        if reorder_request.deck_order:
+            decks_result = db.service_client.table("decks").select("id,folder_id,user_id").in_("id", reorder_request.deck_order).execute()
+            decks = decks_result.data if decks_result.data else []
+            
+            for deck in decks:
+                if deck["user_id"] != current_user.id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Access denied to deck {deck['id']}"
+                    )
+                if deck.get("folder_id") != folder_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Deck {deck['id']} is not in folder {folder_id}"
+                    )
+        
+        # Update order_index for each deck - handle case where column doesn't exist
+        try:
+            for index, deck_id in enumerate(reorder_request.deck_order):
+                db.service_client.table("decks").update({
+                    "order_index": index
+                }).eq("id", deck_id).eq("folder_id", folder_id).eq("user_id", current_user.id).execute()
+        except Exception as e:
+            error_str = str(e)
+            if "order_index" in error_str or "42703" in error_str:
+                logger.warning("order_index column not found - cannot reorder. Please run migration.")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Order index column not found. Please run the database migration."
+                )
+            raise
+        
+        return {"message": "Decks reordered successfully"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Reorder decks error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reorder decks"
         )
 
 
@@ -463,13 +761,38 @@ async def generate_podcast(deck_id: str, current_user = Depends(get_current_user
                     pause = AudioSegment.silent(duration=500)  # 500ms pause
                     combined_audio_segment = combined_audio_segment + pause + segment
             
-            # Download and add background music (try multiple sources for reliability)
+            # Download and add background music (randomly select from soothing/relaxing sources)
+            # Using free, royalty-free music from reliable sources
             bg_music_added = False
-            bg_music_urls = [
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",  # Backup source 1
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",  # Backup source 2
+            
+            # Curated list of soothing, relaxing background music URLs (royalty-free, free to use)
+            # All tracks are calm, ambient, and perfect for podcast background
+            soothing_music_urls = [
+                # SoundHelix - Soothing ambient tracks (reliable, always available)
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",   # Calm, gentle instrumental
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",   # Soft, relaxing ambient
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",   # Peaceful background music
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",   # Gentle, soothing
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",   # Calm, meditative
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",   # Soft, peaceful
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3",   # Relaxing ambient
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3",   # Gentle background
             ]
+            
+            # Randomly select from the most soothing tracks for variety
+            # Prioritize the calmest, most relaxing options
+            most_soothing_urls = [
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",   # Most calming, gentle
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",   # Very relaxing, soft
+                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",   # Meditative, peaceful
+            ]
+            
+            # Start with a random selection from the most soothing tracks
+            # Then include all other options as fallbacks
+            random.shuffle(most_soothing_urls)
+            other_urls = [url for url in soothing_music_urls if url not in most_soothing_urls]
+            random.shuffle(other_urls)
+            bg_music_urls = most_soothing_urls + other_urls
             
             for bg_music_url in bg_music_urls:
                 try:
