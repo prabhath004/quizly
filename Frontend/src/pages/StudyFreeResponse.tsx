@@ -303,12 +303,7 @@ const StudyFreeResponse = () => {
 
                       setEvaluationResult(result);
                       setShowAnswer(true);
-
-                      toast({
-                        title: result.is_correct ? "Great Answer!" : "Keep Practicing!",
-                        description: `Similarity: ${(result.similarity_score * 100).toFixed(0)}% - ${result.feedback}`,
-                        variant: result.is_correct ? "default" : "destructive",
-                      });
+                      
                     } catch (error) {
                       console.error("Error evaluating answer:", error);
                       toast({

@@ -82,16 +82,6 @@ const StudyMCQ = () => {
       
       if (result.is_correct) {
         setScore(score + 1);
-        toast({
-          title: "Correct!",
-          description: result.feedback,
-        });
-      } else {
-        toast({
-          title: "Incorrect",
-          description: result.feedback,
-          variant: "destructive",
-        });
       }
     } catch (error) {
       console.error("Error evaluating answer:", error);
