@@ -98,6 +98,16 @@ See `env.example` for reference.
 
 ---
 
+## Database Schema
+
+The application requires the following database columns:
+- `decks.order_index` - For folder-based deck ordering and podcast autoplay
+- `flashcards.audio_url` - For voice mnemonic recordings
+
+These should already be set up in your Supabase database. If you're setting up a new database, ensure these columns exist.
+
+---
+
 ## API Documentation
 
 Once the backend is running, visit http://localhost:8000/docs for interactive API documentation.

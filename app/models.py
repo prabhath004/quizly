@@ -96,6 +96,7 @@ class DeckUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=500)
     folder_id: Optional[str] = None
+    order_index: Optional[int] = None  # Order within folder
 
 
 class Deck(DeckBase):
@@ -103,9 +104,11 @@ class Deck(DeckBase):
     id: str
     user_id: str
     folder_id: Optional[str] = None
+    order_index: Optional[int] = None  # Order within folder (only used when folder_id is not None)
     created_at: datetime
     updated_at: datetime
     flashcard_count: int = 0
+    podcast_audio_url: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -137,6 +140,7 @@ class FlashcardUpdate(BaseModel):
     mcq_options: Optional[List[str]] = None
     correct_option_index: Optional[int] = None
     tags: Optional[List[str]] = None
+    audio_url: Optional[str] = None  # URL to voice mnemonic recording
 
 
 class Flashcard(FlashcardBase):
@@ -145,6 +149,7 @@ class Flashcard(FlashcardBase):
     deck_id: str
     created_at: datetime
     updated_at: datetime
+    audio_url: Optional[str] = None  # URL to voice mnemonic recording
     
     class Config:
         from_attributes = True
@@ -254,3 +259,9 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     status_code: int
+
+
+# Reorder Models
+class DeckReorderRequest(BaseModel):
+    """Request model for reordering decks in a folder"""
+    deck_order: List[str]  # List of deck IDs in desired order

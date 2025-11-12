@@ -6,11 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { BookOpen, Play, Trash2, Loader2, Plus, Edit2, FolderPlus, Folder, FolderOpen, X, Move, MoreVertical } from "lucide-react";
+import { BookOpen, Play, Trash2, Loader2, Plus, Edit2, FolderPlus, Folder, FolderOpen, X, Move, MoreVertical, Headphones, ChevronUp, ChevronDown } from "lucide-react";
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import authService from "@/lib/auth";
+import { Progress } from "@/components/ui/progress";
+import PodcastPlayer from "@/components/PodcastPlayer";
 // Temporarily disabled drag-and-drop due to React hook error
 // import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, closestCenter } from "@dnd-kit/core";
 // import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
@@ -24,6 +26,8 @@ interface Deck {
   questionType: string;
   createdAt: string;
   folder_id?: string | null;
+  order_index?: number | null;
+  podcast_audio_url?: string | null;
 }
 
 interface Folder {
@@ -44,6 +48,11 @@ const Decks = () => {
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [creatingFolder, setCreatingFolder] = useState(false);
+  
+  // Global podcast player state
+  const [currentPodcast, setCurrentPodcast] = useState<{ url: string; title: string; deckId: string; folderId: string | null } | null>(null);
+  const [isPodcastPlayerOpen, setIsPodcastPlayerOpen] = useState(false);
+  
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -56,6 +65,33 @@ const Decks = () => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Clean up expanded folders when decks or folders change
+  useEffect(() => {
+    setExpandedFolders(prev => {
+      const newSet = new Set(prev);
+      let changed = false;
+      
+      // Remove folders that don't exist or are empty
+      newSet.forEach(folderId => {
+        const folder = folders.find(f => f.id === folderId);
+        if (!folder) {
+          // Folder doesn't exist anymore
+          newSet.delete(folderId);
+          changed = true;
+        } else {
+          // Check if folder has any decks
+          const folderDecks = decks.filter(d => d.folder_id === folderId);
+          if (folderDecks.length === 0) {
+            newSet.delete(folderId);
+            changed = true;
+          }
+        }
+      });
+      
+      return changed ? newSet : prev;
+    });
+  }, [decks, folders]);
 
   const fetchData = async () => {
     // Fetch decks and folders independently - if one fails, the other should still work
@@ -86,6 +122,8 @@ const Decks = () => {
                      deck.description?.includes("TRUE_FALSE") ? "true_false" : "free_response",
         createdAt: deck.created_at,
         folder_id: deck.folder_id,
+        order_index: deck.order_index,
+        podcast_audio_url: deck.podcast_audio_url || null,
       }));
       
       setDecks(transformedDecks);
@@ -197,6 +235,10 @@ const Decks = () => {
   // Simplified move function without drag-and-drop
   const moveDeckToFolder = async (deckId: string, folderId: string | null) => {
     try {
+      // Get the current deck to check its current folder
+      const currentDeck = decks.find(d => d.id === deckId);
+      const wasInFolder = currentDeck?.folder_id;
+      
       await apiPut(`/decks/${deckId}`, { folder_id: folderId });
 
       const targetFolder = folderId ? folders.find(f => f.id === folderId) : null;
@@ -205,14 +247,65 @@ const Decks = () => {
         description: targetFolder ? `Deck moved to "${targetFolder.name}"` : "Deck moved to root",
       });
 
+      // Refresh both decks and folders to ensure UI is up to date
+      // Fetch folders first, then decks (so decks can use updated folders)
+      await fetchFolders();
+      await fetchDecks();
+    } catch (err: any) {
+      console.error("Error moving deck:", err);
+      toast({
+        title: "Error",
+        description: err?.message || "Failed to move deck. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleReorderDecks = async (folderId: string, deckOrder: string[]) => {
+    try {
+      await apiPost(`/decks/folder/${folderId}/reorder`, { deck_order: deckOrder });
       await fetchDecks();
     } catch (err) {
       toast({
         title: "Error",
-        description: "Failed to move deck. Please try again.",
+        description: "Failed to reorder decks. Please try again.",
         variant: "destructive",
       });
     }
+  };
+
+  const handleMoveDeckUp = async (deck: Deck) => {
+    if (!deck.folder_id || deck.order_index === null || deck.order_index === undefined) return;
+    
+    const folderDecks = decks
+      .filter(d => d.folder_id === deck.folder_id)
+      .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+    
+    const currentIndex = folderDecks.findIndex(d => d.id === deck.id);
+    if (currentIndex <= 0) return; // Already at top
+    
+    // Swap with previous deck
+    const newOrder = folderDecks.map(d => d.id);
+    [newOrder[currentIndex], newOrder[currentIndex - 1]] = [newOrder[currentIndex - 1], newOrder[currentIndex]];
+    
+    await handleReorderDecks(deck.folder_id, newOrder);
+  };
+
+  const handleMoveDeckDown = async (deck: Deck) => {
+    if (!deck.folder_id || deck.order_index === null || deck.order_index === undefined) return;
+    
+    const folderDecks = decks
+      .filter(d => d.folder_id === deck.folder_id)
+      .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+    
+    const currentIndex = folderDecks.findIndex(d => d.id === deck.id);
+    if (currentIndex < 0 || currentIndex >= folderDecks.length - 1) return; // Already at bottom
+    
+    // Swap with next deck
+    const newOrder = folderDecks.map(d => d.id);
+    [newOrder[currentIndex], newOrder[currentIndex + 1]] = [newOrder[currentIndex + 1], newOrder[currentIndex]];
+    
+    await handleReorderDecks(deck.folder_id, newOrder);
   };
 
   const toggleFolder = (folderId: string) => {
@@ -242,7 +335,27 @@ const Decks = () => {
 
   const rootDecks = decks.filter(deck => !deck.folder_id);
 
+  // Global podcast player handlers
+  const handlePlayPodcast = (deck: Deck) => {
+    if (!deck.podcast_audio_url) return;
+    
+    // Stop any currently playing podcast
+    setCurrentPodcast({
+      url: deck.podcast_audio_url,
+      title: deck.title,
+      deckId: deck.id,
+      folderId: deck.folder_id || null,
+    });
+    setIsPodcastPlayerOpen(true);
+  };
+
+  const handleStopPodcast = () => {
+    setCurrentPodcast(null);
+    setIsPodcastPlayerOpen(false);
+  };
+
   const DeckCard = ({ deck, folders }: { deck: Deck; folders: Folder[] }) => {
+
     return (
       <div>
         <Card className="hover:shadow-elegant transition-shadow duration-200">
@@ -263,6 +376,12 @@ const Decks = () => {
               <Badge variant="outline">
                 {deck.questionType === "mcq" ? "Multiple Choice" : "Free Response"}
               </Badge>
+              {deck.podcast_audio_url && (
+                <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300">
+                  <Headphones className="mr-1 h-3 w-3" />
+                  Podcast
+                </Badge>
+              )}
             </div>
 
             <div className="flex gap-2">
@@ -273,6 +392,16 @@ const Decks = () => {
                 <Play className="mr-2 h-4 w-4" />
                 Study
               </Button>
+              {deck.podcast_audio_url && (
+                <Button
+                  variant={currentPodcast?.url === deck.podcast_audio_url ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => handlePlayPodcast(deck)}
+                  title="Play Podcast"
+                >
+                  <Headphones className="h-4 w-4" />
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="icon"
@@ -322,7 +451,9 @@ const Decks = () => {
 
   const FolderItem = ({ folder }: { folder: Folder }) => {
     const isExpanded = expandedFolders.has(folder.id);
-    const folderDecks = decks.filter(deck => deck.folder_id === folder.id);
+    const folderDecks = decks
+      .filter(deck => deck.folder_id === folder.id)
+      .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
 
     return (
       <div>
@@ -355,8 +486,39 @@ const Decks = () => {
           {isExpanded && folderDecks.length > 0 && (
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {folderDecks.map((deck) => (
-                  <DeckCard key={deck.id} deck={deck} folders={folders} />
+                {folderDecks.map((deck, index) => (
+                  <div key={deck.id} className="relative">
+                    <DeckCard deck={deck} folders={folders} />
+                    {/* Reorder buttons for decks in folders */}
+                    <div className="absolute top-2 right-2 flex flex-col gap-1 bg-background/80 backdrop-blur-sm rounded-md p-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMoveDeckUp(deck);
+                        }}
+                        disabled={index === 0}
+                        title="Move up"
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMoveDeckDown(deck);
+                        }}
+                        disabled={index === folderDecks.length - 1}
+                        title="Move down"
+                      >
+                        <ChevronDown className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </CardContent>
@@ -470,8 +632,24 @@ const Decks = () => {
           </div>
         )}
       </main>
+      
+      {/* Global Podcast Player */}
+      <PodcastPlayer
+        isOpen={isPodcastPlayerOpen}
+        onClose={() => setIsPodcastPlayerOpen(false)}
+        podcastUrl={currentPodcast?.url || null}
+        deckTitle={currentPodcast?.title || ""}
+        deckId={currentPodcast?.deckId || null}
+        folderId={currentPodcast?.folderId || null}
+        onStop={handleStopPodcast}
+        onNextPodcast={(nextPodcast) => {
+          setCurrentPodcast(nextPodcast);
+          setIsPodcastPlayerOpen(true);
+        }}
+      />
     </div>
   );
 };
 
 export default Decks;
+

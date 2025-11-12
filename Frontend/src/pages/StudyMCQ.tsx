@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, Loader2, Play, Volume2 } from "lucide-react";
 import Header from "@/components/Header";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ interface Flashcard {
   question: string;
   options: string[];
   correctAnswer: number;
+  audio_url?: string | null;
 }
 
 const StudyMCQ = () => {
@@ -29,6 +30,7 @@ const StudyMCQ = () => {
   const [showResult, setShowResult] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [score, setScore] = useState(0);
+  const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     fetchDeckData();
@@ -80,16 +82,6 @@ const StudyMCQ = () => {
       
       if (result.is_correct) {
         setScore(score + 1);
-        toast({
-          title: "Correct!",
-          description: result.feedback,
-        });
-      } else {
-        toast({
-          title: "Incorrect",
-          description: result.feedback,
-          variant: "destructive",
-        });
       }
     } catch (error) {
       console.error("Error evaluating answer:", error);
@@ -101,6 +93,12 @@ const StudyMCQ = () => {
   };
 
   const handleNext = () => {
+    // Stop any playing audio
+    if (playingAudio) {
+      playingAudio.pause();
+      playingAudio.currentTime = 0;
+      setPlayingAudio(null);
+    }
     if (currentIndex < flashcards.length - 1) {
       setCurrentIndex(currentIndex + 1);
       setSelectedOption(null);
@@ -109,12 +107,61 @@ const StudyMCQ = () => {
   };
 
   const handlePrevious = () => {
+    // Stop any playing audio
+    if (playingAudio) {
+      playingAudio.pause();
+      playingAudio.currentTime = 0;
+      setPlayingAudio(null);
+    }
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
       setSelectedOption(null);
       setShowResult(false);
     }
   };
+
+  const handlePlayVoiceMnemonic = (audioUrl: string) => {
+    // Stop any currently playing audio
+    if (playingAudio) {
+      playingAudio.pause();
+      playingAudio.currentTime = 0;
+    }
+    
+    const audio = new Audio(audioUrl);
+    audio.play();
+    setPlayingAudio(audio);
+    
+    audio.onended = () => {
+      setPlayingAudio(null);
+    };
+    
+    audio.onerror = () => {
+      toast({
+        title: "Error",
+        description: "Failed to play audio recording.",
+        variant: "destructive",
+      });
+      setPlayingAudio(null);
+    };
+  };
+
+  const handleStopAudio = () => {
+    if (playingAudio) {
+      playingAudio.pause();
+      playingAudio.currentTime = 0;
+      setPlayingAudio(null);
+    }
+  };
+
+  // Cleanup audio on card change
+  useEffect(() => {
+    return () => {
+      if (playingAudio) {
+        playingAudio.pause();
+        playingAudio.currentTime = 0;
+      }
+    };
+  }, [currentIndex]);
 
   const progress = flashcards.length > 0 ? ((currentIndex + 1) / flashcards.length) * 100 : 0;
   const currentCard = flashcards[currentIndex];
@@ -168,7 +215,35 @@ const StudyMCQ = () => {
         {currentCard && (
           <Card className="mb-6 shadow-elegant animate-scale-in">
             <CardHeader>
-              <CardTitle className="text-2xl">{currentCard.question}</CardTitle>
+              <div className="flex items-center justify-between gap-4">
+                <CardTitle className="text-2xl flex-1">{currentCard.question}</CardTitle>
+                {currentCard.audio_url && (
+                  <Button
+                    variant={playingAudio ? "destructive" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      if (playingAudio) {
+                        handleStopAudio();
+                      } else {
+                        handlePlayVoiceMnemonic(currentCard.audio_url!);
+                      }
+                    }}
+                    title="Play voice mnemonic"
+                  >
+                    {playingAudio ? (
+                      <>
+                        <Volume2 className="mr-2 h-4 w-4" />
+                        Stop
+                      </>
+                    ) : (
+                      <>
+                        <Play className="mr-2 h-4 w-4" />
+                        Play Voice Memo
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
