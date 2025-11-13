@@ -29,7 +29,7 @@ pip install -r requirements.txt -q
 # Check for ffmpeg (required for audio processing)
 if ! command -v ffmpeg &> /dev/null; then
     echo ""
-    echo "⚠️  WARNING: ffmpeg not found. Audio processing features may not work."
+    echo " WARNING: ffmpeg not found. Audio processing features may not work."
     echo "   Install with: brew install ffmpeg (macOS) or apt-get install ffmpeg (Linux)"
     echo ""
 fi
