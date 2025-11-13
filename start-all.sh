@@ -8,10 +8,34 @@ echo ""
 # Get the script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# Setup backend
+echo "Setting up Backend..."
+cd "$SCRIPT_DIR"
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv venv
+fi
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Install/upgrade Python dependencies
+echo "Installing Python dependencies..."
+pip install --upgrade pip -q
+pip install -r requirements.txt -q
+
+# Check for ffmpeg (required for audio processing)
+if ! command -v ffmpeg &> /dev/null; then
+    echo ""
+    echo "⚠️  WARNING: ffmpeg not found. Audio processing features may not work."
+    echo "   Install with: brew install ffmpeg (macOS) or apt-get install ffmpeg (Linux)"
+    echo ""
+fi
+
 # Start backend in background
 echo "Starting Backend on port 8000..."
-cd "$SCRIPT_DIR"
-source venv/bin/activate
 uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 echo "   Backend PID: $BACKEND_PID"
@@ -19,9 +43,18 @@ echo "   Backend PID: $BACKEND_PID"
 # Wait for backend to start
 sleep 3
 
+# Setup frontend
+echo "Setting up Frontend..."
+cd "$SCRIPT_DIR/Frontend"
+
+# Install frontend dependencies if node_modules doesn't exist
+if [ ! -d "node_modules" ]; then
+    echo "Installing Frontend dependencies..."
+    npm install
+fi
+
 # Start frontend in background
 echo "Starting Frontend on port 8080..."
-cd "$SCRIPT_DIR/Frontend"
 npm run dev &
 FRONTEND_PID=$!
 echo "   Frontend PID: $FRONTEND_PID"

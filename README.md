@@ -7,6 +7,7 @@ An intelligent flashcard generation platform with FastAPI backend and React fron
 ### Prerequisites
 - Python 3.8+
 - Node.js 18+
+- ffmpeg (for audio processing) - Install with `brew install ffmpeg` (macOS) or `apt-get install ffmpeg` (Linux)
 - `.env` file with your Supabase and OpenAI credentials (see `env.example`)
 
 ---
