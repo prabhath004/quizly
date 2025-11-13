@@ -1,9 +1,20 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+// Get API base URL from environment variable, fallback to production backend
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://quizly-prod-setup.onrender.com/api';
+
+// Get base URL without /api for health checks
+const getBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl) {
+    return envUrl.replace('/api', '');
+  }
+  return 'https://quizly-prod-setup.onrender.com';
+};
 
 export async function testBackendConnection() {
   try {
     // Health endpoint is at root level, not under /api
-    const response = await fetch('http://localhost:8000/health', {
+    const baseUrl = getBaseUrl();
+    const response = await fetch(`${baseUrl}/health`, {
       method: 'GET',
     });
     return response.ok;

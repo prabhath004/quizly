@@ -24,7 +24,7 @@ const Auth = () => {
       const connected = await testBackendConnection();
       setBackendConnected(connected);
       if (!connected) {
-        setError("Cannot connect to backend. Make sure the server is running on http://localhost:8000");
+        setError("Cannot connect to backend. Please check your connection and try again.");
       }
     };
     checkConnection();
