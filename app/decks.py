@@ -739,7 +739,6 @@ async def generate_podcast(deck_id: str, current_user = Depends(get_current_user
         combined_audio_segment = None
         temp_files = []
         combined_temp = None
-        background_music_temp = None
         
         try:
             # Try using pydub for proper audio combination
@@ -761,118 +760,8 @@ async def generate_podcast(deck_id: str, current_user = Depends(get_current_user
                     pause = AudioSegment.silent(duration=500)  # 500ms pause
                     combined_audio_segment = combined_audio_segment + pause + segment
             
-            # Download and add background music (randomly select from soothing/relaxing sources)
-            # Using free, royalty-free music from reliable sources
-            bg_music_added = False
-            
-            # Curated list of soothing, relaxing background music URLs (royalty-free, free to use)
-            # All tracks are calm, ambient, and perfect for podcast background
-            soothing_music_urls = [
-                # SoundHelix - Soothing ambient tracks (reliable, always available)
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",   # Calm, gentle instrumental
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",   # Soft, relaxing ambient
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",   # Peaceful background music
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",   # Gentle, soothing
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",   # Calm, meditative
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",   # Soft, peaceful
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3",   # Relaxing ambient
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3",   # Gentle background
-            ]
-            
-            # Randomly select from the most soothing tracks for variety
-            # Prioritize the calmest, most relaxing options
-            most_soothing_urls = [
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",   # Most calming, gentle
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",   # Very relaxing, soft
-                "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",   # Meditative, peaceful
-            ]
-            
-            # Start with a random selection from the most soothing tracks
-            # Then include all other options as fallbacks
-            random.shuffle(most_soothing_urls)
-            other_urls = [url for url in soothing_music_urls if url not in most_soothing_urls]
-            random.shuffle(other_urls)
-            bg_music_urls = most_soothing_urls + other_urls
-            
-            for bg_music_url in bg_music_urls:
-                try:
-                    logger.info(f"Attempting to download background music from: {bg_music_url}")
-                    bg_response = requests.get(bg_music_url, timeout=15, stream=True)
-                    
-                    if bg_response.status_code == 200:
-                        background_music_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-                        for chunk in bg_response.iter_content(chunk_size=8192):
-                            background_music_temp.write(chunk)
-                        background_music_temp.close()
-                        
-                        try:
-                            bg_music = AudioSegment.from_mp3(background_music_temp.name)
-                            
-                            # Lower volume by 17dB - present but won't overwhelm voice (balanced level)
-                            # This ensures background music is audible but stays in the background
-                            bg_music = bg_music - 17
-                            
-                            # Loop background music to match podcast length
-                            podcast_length = len(combined_audio_segment)
-                            bg_length = len(bg_music)
-                            
-                            if bg_length < podcast_length:
-                                # Loop the background music
-                                loops_needed = (podcast_length // bg_length) + 1
-                                bg_music = bg_music * loops_needed
-                            
-                            # Trim to match podcast length
-                            bg_music = bg_music[:podcast_length]
-                            
-                            # Mix background music with podcast audio
-                            combined_audio_segment = combined_audio_segment.overlay(bg_music)
-                            bg_music_added = True
-                            logger.info("Background music successfully added to podcast")
-                            break  # Success, no need to try other URLs
-                        except Exception as parse_error:
-                            logger.warning(f"Failed to parse background music file: {parse_error}")
-                            try:
-                                os.unlink(background_music_temp.name)
-                            except:
-                                pass
-                            continue  # Try next URL
-                    else:
-                        logger.warning(f"Failed to download background music: HTTP {bg_response.status_code}")
-                except Exception as bg_error:
-                    logger.warning(f"Error downloading background music from {bg_music_url}: {bg_error}")
-                    continue  # Try next URL
-            
-            if not bg_music_added:
-                # Last resort: Try to create a subtle ambient background
-                # We'll try to use a silent segment with very low volume white noise
-                # This ensures there's always some background presence
-                try:
-                    logger.info("Background music download failed, attempting to create ambient background")
-                    podcast_length = len(combined_audio_segment)
-                    
-                    # Try to generate a subtle ambient tone
-                    try:
-                        from pydub.generators import Sine
-                        # Create a very low, quiet tone
-                        ambient_tone = Sine(80).to_audio_segment(duration=min(3000, podcast_length))
-                        ambient_tone = ambient_tone - 32  # Very quiet
-                        
-                        # Loop to match length
-                        while len(ambient_tone) < podcast_length:
-                            ambient_tone = ambient_tone + ambient_tone
-                        ambient_tone = ambient_tone[:podcast_length]
-                        
-                        # Mix with podcast
-                        combined_audio_segment = combined_audio_segment.overlay(ambient_tone)
-                        logger.info("Added subtle ambient tone as background music fallback")
-                        print("Note: Using generated ambient tone (background music download unavailable)")
-                    except ImportError:
-                        # pydub.generators not available, skip ambient tone
-                        logger.warning("pydub.generators not available, cannot create ambient background")
-                        print("Warning: Background music could not be added. Podcast will continue without background music.")
-                except Exception as fallback_error:
-                    logger.error(f"Error in background music fallback: {fallback_error}")
-                    print("Warning: Could not add background music. Podcast will continue without it.")
+            # Background music disabled - podcast will contain only voice audio
+            # (Background music code removed per user request)
             
             # Export combined audio to bytes
             combined_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
@@ -894,11 +783,6 @@ async def generate_podcast(deck_id: str, current_user = Depends(get_current_user
                     os.unlink(combined_temp.name)
             except:
                 pass
-            try:
-                if background_music_temp:
-                    os.unlink(background_music_temp.name)
-            except:
-                pass
                 
         except Exception as e:
             # Clean up on error
@@ -910,11 +794,6 @@ async def generate_podcast(deck_id: str, current_user = Depends(get_current_user
             try:
                 if combined_temp:
                     os.unlink(combined_temp.name)
-            except:
-                pass
-            try:
-                if background_music_temp:
-                    os.unlink(background_music_temp.name)
             except:
                 pass
             
