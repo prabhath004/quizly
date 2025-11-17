@@ -14,6 +14,7 @@ import os
 import random
 from pydub import AudioSegment
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -617,65 +618,88 @@ async def generate_podcast(deck_id: str, current_user = Depends(get_current_user
         # Generate podcast script using OpenAI
         client = get_openai_client()
         
-        # Create script prompt - include all flashcards, but limit individual card lengths
+        # Create script prompt - include ALL flashcards with full content
+        # Don't truncate - we need all cards covered
         flashcard_text = "\n\n".join([
-            f"Question {i+1}: {card['question'][:500]}\nAnswer: {card['answer'][:1000]}"
+            f"Card {i+1}:\nQuestion: {card['question']}\nAnswer: {card['answer']}"
             for i, card in enumerate(flashcards)
         ])
         
-        # Limit total flashcard text to avoid token limits (keep it reasonable)
-        if len(flashcard_text) > 4000:
-            flashcard_text = flashcard_text[:4000] + "\n\n[Additional flashcards truncated for script generation...]"
+        total_cards = len(flashcards)
         
-        script_prompt = f"""Create a lively, conversational podcast script with natural back-and-forth dialogue between two speakers: a Questioner and an Answerer.
-        
-        Flashcard Content:
+        script_prompt = f"""Create a comprehensive, lively conversational podcast script covering ALL {total_cards} flashcards. This should be a detailed, engaging study session podcast.
+
+        Flashcard Content (ALL {total_cards} cards must be covered):
         {flashcard_text}
         
-        Requirements:
-        1. Make it feel like a real conversation with natural interruptions, follow-up questions, and reactions
-        2. The Questioner should ask questions in a friendly, engaging way
-        3. The Answerer should respond conversationally, not just recite facts - add personality and enthusiasm
-        4. Include natural back-and-forth: the Answerer can ask clarifying questions, the Questioner can react to answers
-        5. CLEARLY mark transitions between questions with phrases like "Great! Let's move on to the next question", "Alright, here's another one", or "Perfect! Now for question number X"
-        6. Make it feel like two friends having a study session, not a formal Q&A
+        CRITICAL REQUIREMENTS:
+        1. COVER EVERY SINGLE CARD - You must include all {total_cards} cards in the podcast. Do not skip any.
+        2. Each card should have substantial coverage (at least 3-5 dialogue exchanges per card):
+           - Questioner introduces the question clearly
+           - Answerer provides a detailed, conversational explanation
+           - Questioner can ask follow-up questions or request clarification
+           - Answerer expands on the answer with examples, context, or additional details
+           - Natural transitions between cards
+        3. Make answers detailed and explanatory - don't just state facts. Expand on WHY, HOW, and provide context.
+        4. Each card should take approximately 30-60 seconds of dialogue to cover properly.
+        5. Use clear transitions: "Great! Now let's move to card {total_cards if total_cards > 1 else 1}", "Perfect! Next up is question number X", "Alright, here's another interesting one - card X"
+        6. Make it feel like two friends having an in-depth study session with thorough explanations
+        7. The Answerer should elaborate on answers, provide examples, explain concepts thoroughly
+        8. Include natural reactions: "Oh interesting!", "That makes sense!", "Let me think about that..."
+        9. Ensure the podcast is comprehensive - aim for at least 4-6 minutes of content for {total_cards} cards
         
         Format the script as JSON with this structure:
         {{
             "segments": [
                 {{
                     "speaker": "questioner",
-                    "text": "Hey! Welcome to our study podcast. I'm excited to go through these questions with you. Ready for the first one?"
+                    "text": "Hey! Welcome to our study podcast. We have {total_cards} great questions to go through today. Ready to dive in?"
                 }},
                 {{
                     "speaker": "answerer",
-                    "text": "Absolutely! Let's do this!"
+                    "text": "Absolutely! I'm excited. Let's make sure we cover everything thoroughly."
                 }},
                 {{
                     "speaker": "questioner",
-                    "text": "Okay, so here's question one: [question text]"
+                    "text": "Perfect! So here's our first question: [full question text from Card 1]"
                 }},
                 {{
                     "speaker": "answerer",
-                    "text": "Oh, that's interesting! So the answer is [answer]. Let me explain why..."
+                    "text": "[Detailed, expanded answer with explanation, examples, and context - make this substantial]"
                 }},
                 {{
                     "speaker": "questioner",
-                    "text": "Perfect! That makes sense. Alright, moving on to question two..."
+                    "text": "[Follow-up question or reaction, then transition to Card 2]"
+                }},
+                {{
+                    "speaker": "answerer",
+                    "text": "[Response and continuation]"
                 }}
+                // Continue this pattern for ALL {total_cards} cards...
             ]
         }}
         
-        Make it feel natural and conversational with real dialogue, reactions, and clear question transitions."""
+        IMPORTANT: 
+        - Generate segments for ALL {total_cards} cards
+        - Each card needs multiple dialogue exchanges (not just one question-answer pair)
+        - Make answers detailed and explanatory
+        - Include natural transitions between each card
+        - The total script should be comprehensive and cover everything thoroughly"""
         
-        # Generate script
+        # Generate script with increased token limit to ensure all cards are covered
+        # Calculate token limit based on number of cards (more cards = more tokens needed)
+        # Base: 2000 tokens, add 500 per card for detailed coverage
+        estimated_tokens = 2000 + (len(flashcards) * 500)
+        # Cap at 4000 tokens (GPT-3.5-turbo max output tokens is 4096, using 4000 to be safe)
+        max_tokens = min(estimated_tokens, 4000)
+        
         script_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are an expert podcast script writer. Create engaging, natural conversational scripts. Return only valid JSON."},
+                {"role": "system", "content": f"You are an expert podcast script writer. Create comprehensive, detailed conversational scripts that cover ALL {total_cards} flashcards provided. Each card must have substantial coverage with multiple dialogue exchanges. Return only valid JSON."},
                 {"role": "user", "content": script_prompt}
             ],
-            max_tokens=2000,
+            max_tokens=max_tokens,
             temperature=0.7,
             response_format={"type": "json_object"}
         )
@@ -690,7 +714,19 @@ async def generate_podcast(deck_id: str, current_user = Depends(get_current_user
                 detail="Failed to generate podcast script"
             )
         
-        print(f"Generated script with {len(segments)} segments")
+        # Validate script quality - check if we have enough segments for all cards
+        # Each card should have at least 3-4 segments (intro, question, answer, transition)
+        min_expected_segments = total_cards * 3 + 2  # 3 per card + intro/outro
+        if len(segments) < min_expected_segments:
+            logger.warning(f"Generated script has {len(segments)} segments but expected at least {min_expected_segments} for {total_cards} cards. Script may be incomplete.")
+            print(f"Warning: Script may not cover all cards. Generated {len(segments)} segments for {total_cards} cards.")
+        
+        # Calculate total script length (rough estimate: ~150 words per minute of speech)
+        total_words = sum(len(seg.get("text", "").split()) for seg in segments)
+        estimated_minutes = total_words / 150
+        
+        print(f"Generated script with {len(segments)} segments covering {total_cards} cards")
+        print(f"Estimated podcast length: ~{estimated_minutes:.1f} minutes ({total_words} words)")
         
         # Generate audio for each segment with appropriate voices
         # OpenAI TTS voices: alloy, echo, fable, onyx, nova, shimmer
@@ -698,8 +734,9 @@ async def generate_podcast(deck_id: str, current_user = Depends(get_current_user
         questioner_voice = "shimmer"  # More lively, energetic female voice
         answerer_voice = "echo"       # More lively, energetic male voice
         
-        audio_segments = []
-        for segment in segments:
+        # Prepare segments for parallel processing
+        segment_tasks = []
+        for i, segment in enumerate(segments):
             speaker = segment.get("speaker", "questioner").lower()
             text = segment.get("text", "")
             
@@ -708,26 +745,52 @@ async def generate_podcast(deck_id: str, current_user = Depends(get_current_user
             
             # Select voice based on speaker
             voice = questioner_voice if speaker == "questioner" else answerer_voice
-            
-            # Generate audio using OpenAI TTS
+            segment_tasks.append((i, text, voice))
+        
+        # Function to generate TTS audio for a single segment
+        def generate_tts_audio(index, text, voice):
+            """Generate TTS audio for a single segment"""
             try:
                 response = client.audio.speech.create(
                     model="tts-1",
                     voice=voice,
                     input=text
                 )
-                
-                # Read audio data
-                audio_data = response.content
-                audio_segments.append(audio_data)
-                
-                # Small delay to avoid rate limits
-                time.sleep(0.5)
-                
+                return (index, response.content, None)
             except Exception as e:
-                logger.error(f"Error generating audio for segment: {e}")
-                # Continue with other segments even if one fails
-                continue
+                logger.error(f"Error generating audio for segment {index}: {e}")
+                return (index, None, str(e))
+        
+        # Generate audio segments in parallel (much faster!)
+        # Use ThreadPoolExecutor to parallelize TTS API calls
+        audio_segments_dict = {}
+        max_workers = min(10, len(segment_tasks))  # Process up to 10 segments concurrently
+        
+        print(f"Generating audio for {len(segment_tasks)} segments in parallel (max {max_workers} concurrent)...")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_index = {
+                executor.submit(generate_tts_audio, idx, text, voice): idx 
+                for idx, text, voice in segment_tasks
+            }
+            
+            # Collect results as they complete
+            completed = 0
+            for future in as_completed(future_to_index):
+                index, audio_data, error = future.result()
+                if audio_data:
+                    audio_segments_dict[index] = audio_data
+                    completed += 1
+                    if completed % 5 == 0:
+                        print(f"Generated {completed}/{len(segment_tasks)} audio segments...")
+                else:
+                    logger.warning(f"Failed to generate audio for segment {index}: {error}")
+        
+        # Convert dict back to list in correct order
+        audio_segments = [audio_segments_dict[i] for i in sorted(audio_segments_dict.keys())]
+        
+        print(f"Successfully generated {len(audio_segments)}/{len(segment_tasks)} audio segments")
         
         if not audio_segments:
             raise HTTPException(
