@@ -114,3 +114,7 @@ These should already be set up in your Supabase database. If you're setting up a
 Once the backend is running, visit http://localhost:8000/docs for interactive API documentation.
 
 ---
+
+## Demo video
+
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/ggRKhPogOag/0.jpg)](https://www.youtube.com/watch?v=ggRKhPogOag)
